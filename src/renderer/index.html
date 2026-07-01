@@ -2,74 +2,177 @@
 <html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
-    <!-- Lock the renderer down: no remote content, no inline eval. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self';"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: blob:; font-src 'self' data:; connect-src 'self';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Markdown Viewer</title>
+    <link rel="stylesheet" href="dist/bundle.css" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div id="toolbar" class="toolbar">
-      <div class="toolbar-group">
-        <button data-action="open" title="Open (Ctrl/Cmd+O)">Open</button>
-        <button data-action="save" title="Save (Ctrl/Cmd+S)">Save</button>
-        <button data-action="new" title="New (Ctrl/Cmd+N)">New</button>
+    <!-- Icon sprite (Lucide-style) -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <g id="i-new"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v5h5"/><line x1="12" y1="12" x2="12" y2="18"/><line x1="9" y1="15" x2="15" y2="15"/></g>
+        <g id="i-open"><path d="M6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6A2 2 0 0 1 18.45 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></g>
+        <g id="i-save"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></g>
+        <g id="i-bold"><path d="M14 12a4 4 0 0 0 0-8H6v8"/><path d="M15 20a4 4 0 0 0 0-8H6v8Z"/></g>
+        <g id="i-italic"><line x1="19" y1="4" x2="10" y2="4"/><line x1="14" y1="20" x2="5" y2="20"/><line x1="15" y1="4" x2="9" y2="20"/></g>
+        <g id="i-strike"><path d="M16 4H9a3 3 0 0 0-2.83 4"/><path d="M14 12a4 4 0 0 1 0 8H6"/><line x1="4" y1="12" x2="20" y2="12"/></g>
+        <g id="i-quote"><path d="M17 6H3"/><path d="M21 12H8"/><path d="M21 18H8"/><path d="M3 12v6"/></g>
+        <g id="i-code"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></g>
+        <g id="i-codeblock"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 10l-2 2 2 2"/><path d="M15 10l2 2-2 2"/></g>
+        <g id="i-ul"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></g>
+        <g id="i-ol"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/></g>
+        <g id="i-task"><path d="M3 17l2 2 4-4"/><path d="M3 7l2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></g>
+        <g id="i-link"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></g>
+        <g id="i-image"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></g>
+        <g id="i-table"><path d="M12 3v18"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/></g>
+        <g id="i-hr"><line x1="5" y1="12" x2="19" y2="12"/></g>
+        <g id="i-outline"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></g>
+        <g id="i-edit"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></g>
+        <g id="i-split"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/></g>
+        <g id="i-eye"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></g>
+        <g id="i-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></g>
+        <g id="i-moon"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></g>
+        <g id="i-search"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></g>
+        <g id="i-zen"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></g>
+        <g id="i-help"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></g>
+        <g id="i-close"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></g>
+        <g id="i-chevron-down"><polyline points="6 9 12 15 18 9"/></g>
+      </defs>
+    </svg>
+
+    <div class="app">
+      <header class="toolbar" id="toolbar">
+        <div class="tb-group">
+          <button class="tb-btn" data-action="new" data-tip="New (⌘N)"><svg class="ic"><use href="#i-new"/></svg></button>
+          <button class="tb-btn" data-action="open" data-tip="Open (⌘O)"><svg class="ic"><use href="#i-open"/></svg></button>
+          <button class="tb-btn" data-action="save" data-tip="Save (⌘S)"><svg class="ic"><use href="#i-save"/></svg></button>
+        </div>
+        <span class="tb-sep"></span>
+        <div class="tb-group">
+          <button class="tb-btn" data-format="bold" data-tip="Bold (⌘B)"><svg class="ic"><use href="#i-bold"/></svg></button>
+          <button class="tb-btn" data-format="italic" data-tip="Italic (⌘I)"><svg class="ic"><use href="#i-italic"/></svg></button>
+          <button class="tb-btn" data-format="strike" data-tip="Strikethrough"><svg class="ic"><use href="#i-strike"/></svg></button>
+        </div>
+        <span class="tb-sep"></span>
+        <div class="tb-group">
+          <button class="tb-btn tb-text" data-format="h1" data-tip="Heading 1">H1</button>
+          <button class="tb-btn tb-text" data-format="h2" data-tip="Heading 2">H2</button>
+          <button class="tb-btn tb-text" data-format="h3" data-tip="Heading 3">H3</button>
+        </div>
+        <span class="tb-sep"></span>
+        <div class="tb-group">
+          <button class="tb-btn" data-format="quote" data-tip="Quote"><svg class="ic"><use href="#i-quote"/></svg></button>
+          <button class="tb-btn" data-format="code" data-tip="Inline code"><svg class="ic"><use href="#i-code"/></svg></button>
+          <button class="tb-btn" data-format="codeblock" data-tip="Code block"><svg class="ic"><use href="#i-codeblock"/></svg></button>
+        </div>
+        <span class="tb-sep"></span>
+        <div class="tb-group">
+          <button class="tb-btn" data-format="ul" data-tip="Bulleted list"><svg class="ic"><use href="#i-ul"/></svg></button>
+          <button class="tb-btn" data-format="ol" data-tip="Numbered list"><svg class="ic"><use href="#i-ol"/></svg></button>
+          <button class="tb-btn" data-format="task" data-tip="Task list"><svg class="ic"><use href="#i-task"/></svg></button>
+        </div>
+        <span class="tb-sep"></span>
+        <div class="tb-group">
+          <button class="tb-btn" data-format="link" data-tip="Link (⌘K)"><svg class="ic"><use href="#i-link"/></svg></button>
+          <button class="tb-btn" data-format="image" data-tip="Image"><svg class="ic"><use href="#i-image"/></svg></button>
+          <button class="tb-btn" data-format="table" data-tip="Table"><svg class="ic"><use href="#i-table"/></svg></button>
+          <button class="tb-btn" data-format="hr" data-tip="Divider"><svg class="ic"><use href="#i-hr"/></svg></button>
+        </div>
+
+        <span class="tb-spacer"></span>
+
+        <div class="tb-group">
+          <button class="tb-btn" data-action="outline" data-tip="Outline"><svg class="ic"><use href="#i-outline"/></svg></button>
+          <button class="tb-btn" data-action="palette" data-tip="Commands (⌘⇧P)"><svg class="ic"><use href="#i-search"/></svg></button>
+        </div>
+        <span class="tb-sep"></span>
+        <div class="segmented" id="viewSeg">
+          <button class="seg-btn" data-view="editor" data-tip="Editor only (⌘1)"><svg class="ic"><use href="#i-edit"/></svg></button>
+          <button class="seg-btn active" data-view="split" data-tip="Split (⌘2)"><svg class="ic"><use href="#i-split"/></svg></button>
+          <button class="seg-btn" data-view="preview" data-tip="Preview only (⌘3)"><svg class="ic"><use href="#i-eye"/></svg></button>
+        </div>
+        <span class="tb-sep"></span>
+        <div class="tb-group">
+          <button class="tb-btn" data-action="zen" data-tip="Focus mode (⌘⇧F)"><svg class="ic"><use href="#i-zen"/></svg></button>
+          <button class="tb-btn" id="themeToggle" data-action="theme" data-tip="Theme (⌘⇧L)"><svg class="ic"><use href="#i-moon"/></svg></button>
+          <button class="tb-btn" data-action="help" data-tip="Shortcuts (?)"><svg class="ic"><use href="#i-help"/></svg></button>
+        </div>
+      </header>
+
+      <div class="workspace view-split" id="workspace">
+        <aside class="outline" id="outline" hidden>
+          <div class="outline-head">
+            <span>Outline</span>
+            <button class="icon-btn" data-action="outline" data-tip="Hide outline"><svg class="ic"><use href="#i-close"/></svg></button>
+          </div>
+          <nav class="outline-list" id="outlineList"></nav>
+        </aside>
+
+        <section class="pane editor-pane" id="editorPane">
+          <div class="find-bar" id="findBar" hidden>
+            <div class="find-row">
+              <input type="text" id="findInput" placeholder="Find" spellcheck="false" />
+              <span class="find-count" id="findCount">0/0</span>
+              <button class="icon-btn" id="findPrev" data-tip="Previous (⇧⏎)"><svg class="ic" style="transform:rotate(180deg)"><use href="#i-chevron-down"/></svg></button>
+              <button class="icon-btn" id="findNext" data-tip="Next (⏎)"><svg class="ic"><use href="#i-chevron-down"/></svg></button>
+              <button class="icon-btn" id="findClose" data-tip="Close (Esc)"><svg class="ic"><use href="#i-close"/></svg></button>
+            </div>
+            <div class="find-row">
+              <input type="text" id="replaceInput" placeholder="Replace" spellcheck="false" />
+              <button class="text-btn" id="replaceOne">Replace</button>
+              <button class="text-btn" id="replaceAll">All</button>
+            </div>
+          </div>
+          <textarea id="editor" spellcheck="true" placeholder="Start writing Markdown, or press ⌘O to open a file…"></textarea>
+        </section>
+
+        <div class="divider" id="divider" title="Drag to resize"></div>
+
+        <section class="pane preview-pane" id="previewPane">
+          <article class="markdown-body" id="preview"></article>
+        </section>
       </div>
-      <span class="sep"></span>
-      <div class="toolbar-group">
-        <button data-format="bold" title="Bold (Ctrl/Cmd+B)"><b>B</b></button>
-        <button data-format="italic" title="Italic (Ctrl/Cmd+I)"><i>I</i></button>
-        <button data-format="strike" title="Strikethrough"><s>S</s></button>
-        <button data-format="h1" title="Heading 1">H1</button>
-        <button data-format="h2" title="Heading 2">H2</button>
-        <button data-format="h3" title="Heading 3">H3</button>
-        <button data-format="quote" title="Blockquote">&ldquo;</button>
-        <button data-format="code" title="Inline code">&lt;/&gt;</button>
-        <button data-format="codeblock" title="Code block">{ }</button>
-        <button data-format="ul" title="Bulleted list">&bull;</button>
-        <button data-format="ol" title="Numbered list">1.</button>
-        <button data-format="task" title="Task list">&#9745;</button>
-        <button data-format="link" title="Link (Ctrl/Cmd+K)">&#128279;</button>
-        <button data-format="image" title="Image">&#128247;</button>
-        <button data-format="table" title="Table">&#9636;</button>
-        <button data-format="hr" title="Horizontal rule">&mdash;</button>
-      </div>
-      <span class="spacer"></span>
-      <div class="toolbar-group view-modes">
-        <button data-view="editor" title="Editor only (Ctrl/Cmd+1)">Editor</button>
-        <button data-view="split" class="active" title="Split (Ctrl/Cmd+2)">Split</button>
-        <button data-view="preview" title="Preview only (Ctrl/Cmd+3)">Preview</button>
-      </div>
-      <button id="themeToggle" data-action="theme" title="Toggle theme (Ctrl/Cmd+Shift+D)">&#9789;</button>
+
+      <footer class="statusbar" id="statusbar">
+        <span class="status-file" id="fileName">Untitled</span>
+        <span class="dirty-dot" id="dirtyDot" hidden>●</span>
+        <span class="status-spacer"></span>
+        <span id="wordCount">0 words</span>
+        <span class="status-dot">·</span>
+        <span id="readTime">0 min read</span>
+        <span class="status-dot">·</span>
+        <span id="charCount">0 chars</span>
+        <span class="status-dot">·</span>
+        <span id="cursorPos">Ln 1, Col 1</span>
+      </footer>
     </div>
 
-    <main id="workspace" class="workspace view-split">
-      <section id="editorPane" class="pane editor-pane">
-        <textarea
-          id="editor"
-          spellcheck="true"
-          placeholder="# Start writing Markdown…&#10;&#10;Open a file, or just start typing. The preview updates live."
-        ></textarea>
-      </section>
-      <div id="divider" class="divider" title="Drag to resize"></div>
-      <section id="previewPane" class="pane preview-pane">
-        <article id="preview" class="markdown-body"></article>
-      </section>
-    </main>
+    <!-- Command palette -->
+    <div class="overlay" id="paletteOverlay" hidden>
+      <div class="palette" role="dialog" aria-label="Command palette">
+        <div class="palette-search">
+          <svg class="ic"><use href="#i-search"/></svg>
+          <input type="text" id="paletteInput" placeholder="Type a command…" spellcheck="false" autocomplete="off" />
+        </div>
+        <ul class="palette-list" id="paletteList"></ul>
+      </div>
+    </div>
 
-    <footer id="statusbar" class="statusbar">
-      <span id="fileName">Untitled</span>
-      <span id="dirtyDot" class="dirty-dot" hidden>&bull;</span>
-      <span class="spacer"></span>
-      <span id="cursorPos">Ln 1, Col 1</span>
-      <span class="sep-dot">&middot;</span>
-      <span id="wordCount">0 words</span>
-      <span class="sep-dot">&middot;</span>
-      <span id="charCount">0 chars</span>
-    </footer>
+    <!-- Shortcut help -->
+    <div class="overlay" id="helpOverlay" hidden>
+      <div class="help-modal" role="dialog" aria-label="Keyboard shortcuts">
+        <div class="help-head">
+          <h2>Keyboard shortcuts</h2>
+          <button class="icon-btn" data-action="help" data-tip="Close"><svg class="ic"><use href="#i-close"/></svg></button>
+        </div>
+        <div class="help-grid" id="helpGrid"></div>
+      </div>
+    </div>
 
     <script src="dist/bundle.js"></script>
   </body>

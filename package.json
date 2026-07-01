@@ -1,7 +1,7 @@
 {
   "name": "md-viewer",
   "productName": "Markdown Viewer",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A simple, fast cross-platform Markdown viewer and editor for Windows, macOS, and Linux.",
   "author": {
     "name": "Ferdous",
@@ -23,18 +23,21 @@
     "dist:linux": "npm run build:renderer && electron-builder --linux",
     "pack": "npm run build:renderer && electron-builder --dir"
   },
+  "comment": "Only electron-updater is required at runtime; everything else is bundled into the renderer by esbuild, so it lives in devDependencies to keep the packaged app small.",
   "dependencies": {
-    "dompurify": "^3.1.6",
-    "electron-updater": "^6.8.9",
-    "highlight.js": "^11.10.0",
-    "marked": "^13.0.3",
-    "marked-gfm-heading-id": "^4.1.0",
-    "marked-highlight": "^2.1.4"
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
+    "dompurify": "^3.1.6",
     "electron": "^31.3.1",
     "electron-builder": "^24.13.3",
-    "esbuild": "^0.23.0"
+    "esbuild": "^0.23.0",
+    "highlight.js": "^11.10.0",
+    "katex": "^0.16.47",
+    "marked": "^13.0.3",
+    "marked-gfm-heading-id": "^4.1.0",
+    "marked-highlight": "^2.1.4",
+    "mermaid": "^11.16.0"
   },
   "build": {
     "appId": "ai.fintant.mdviewer",
@@ -49,7 +52,9 @@
     "files": [
       "src/main/**/*",
       "src/renderer/index.html",
-      "src/renderer/dist/**/*",
+      "src/renderer/styles.css",
+      "src/renderer/dist/bundle.js",
+      "src/renderer/dist/bundle.css",
       "assets/**/*"
     ],
     "directories": {

@@ -168,6 +168,10 @@ function buildMenu() {
           label: 'Export as HTML…',
           click: () => sendToFocused('menu:export-html'),
         },
+        {
+          label: 'Export as PDF…',
+          click: () => sendToFocused('menu:export-pdf'),
+        },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
@@ -182,6 +186,12 @@ function buildMenu() {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Find & Replace…',
+          accelerator: 'CmdOrCtrl+F',
+          click: () => sendToFocused('menu:find'),
+        },
         { type: 'separator' },
         {
           label: 'Bold',
@@ -204,6 +214,12 @@ function buildMenu() {
       label: 'View',
       submenu: [
         {
+          label: 'Command Palette…',
+          accelerator: 'CmdOrCtrl+Shift+P',
+          click: () => sendToFocused('menu:palette'),
+        },
+        { type: 'separator' },
+        {
           label: 'Editor Only',
           accelerator: 'CmdOrCtrl+1',
           click: () => sendToFocused('menu:view-mode', 'editor'),
@@ -220,8 +236,18 @@ function buildMenu() {
         },
         { type: 'separator' },
         {
-          label: 'Toggle Dark / Light Theme',
-          accelerator: 'CmdOrCtrl+Shift+D',
+          label: 'Toggle Outline',
+          accelerator: 'CmdOrCtrl+\\',
+          click: () => sendToFocused('menu:outline'),
+        },
+        {
+          label: 'Focus Mode',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          click: () => sendToFocused('menu:zen'),
+        },
+        {
+          label: 'Cycle Theme (Dark / Light / Sepia)',
+          accelerator: 'CmdOrCtrl+Shift+L',
           click: () => sendToFocused('menu:toggle-theme'),
         },
         { type: 'separator' },

@@ -81,31 +81,38 @@ On **macOS**, auto-update needs code signing, so for now just re-download the la
 
 ## Features
 
-- 📝 **Live split preview** — editor on the left, rendered Markdown on the right, with synced scrolling
-- 🎨 **Dark & light themes** (`Ctrl/Cmd+Shift+D`)
-- 🧰 **Formatting toolbar** — bold, italic, headings, lists, task lists, links, images, tables, code blocks, and more
-- ⚡ **GitHub-flavored Markdown** — tables, task lists, strikethrough, autolinks
+- 📝 **Live split preview** — editor + rendered Markdown side by side, with synced scrolling
+- 🎨 **Three themes** — dark, light, and sepia (`Ctrl/Cmd+Shift+L`)
+- ⌘ **Command palette** (`Ctrl/Cmd+Shift+P`) — run any action instantly
+- 🧭 **Document outline** (`Ctrl/Cmd+\`) — navigate headings, with active-section tracking
+- 🔍 **Find & replace** (`Ctrl/Cmd+F`)
+- 🧘 **Focus mode** (`Ctrl/Cmd+Shift+F`) — distraction-free writing
+- 🧮 **Math** — inline `$…$` and block `$$…$$` rendered with KaTeX
+- 📊 **Diagrams** — Mermaid flowcharts, sequence diagrams, and more
+- ✅ **Interactive task lists** — tick checkboxes in the preview and the source updates live
 - 🌈 **Syntax highlighting** in fenced code blocks (theme-aware)
-- 🔒 **Safe rendering** — HTML is sanitized (DOMPurify) and runs in a sandboxed renderer
-- 💾 **Open / Save / Save As / Export to HTML**
-- 🖱️ **Drag & drop** a `.md` file to open it
-- 🔗 **File associations** — double-click `.md` files to open them in the app
-- ↩️ **Unsaved-changes protection** before closing
-- 📴 **Fully offline** — no network, all assets bundled
+- 🧰 **Formatting toolbar + shortcuts** — bold, italic, headings, lists, links, images, tables, code
+- ⚡ **GitHub-flavored Markdown** — tables, task lists, strikethrough, autolinks, heading anchors
+- 📊 **Reading time & word/character count** in the status bar
+- 🔒 **Safe rendering** — HTML sanitized (DOMPurify) in a sandboxed renderer
+- 💾 **Open / Save / Save As / Export to HTML / Export to PDF / Copy as HTML**
+- 🖱️ **Drag & drop** a file to open · 🔗 **`.md` file associations** · ↩️ **unsaved-changes protection**
+- 📴 **Fully offline** — no network, everything bundled
 
 ## Keyboard shortcuts
 
 | Action            | Shortcut                 |
 | ----------------- | ------------------------ |
-| New               | `Ctrl/Cmd + N`           |
-| Open              | `Ctrl/Cmd + O`           |
-| Save              | `Ctrl/Cmd + S`           |
+| Command palette   | `Ctrl/Cmd + Shift + P`   |
+| New / Open / Save | `Ctrl/Cmd + N / O / S`   |
 | Save As           | `Ctrl/Cmd + Shift + S`   |
-| Bold              | `Ctrl/Cmd + B`           |
-| Italic            | `Ctrl/Cmd + I`           |
-| Insert link       | `Ctrl/Cmd + K`           |
+| Find & replace    | `Ctrl/Cmd + F`           |
+| Bold / Italic / Link | `Ctrl/Cmd + B / I / K` |
 | Editor / Split / Preview | `Ctrl/Cmd + 1 / 2 / 3` |
-| Toggle theme      | `Ctrl/Cmd + Shift + D`   |
+| Toggle outline    | `Ctrl/Cmd + \`           |
+| Focus mode        | `Ctrl/Cmd + Shift + F`   |
+| Cycle theme       | `Ctrl/Cmd + Shift + L`   |
+| Keyboard shortcuts| `?`                      |
 
 ## Development
 

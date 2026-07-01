@@ -32,6 +32,11 @@ contextBridge.exposeInMainWorld('api', {
   onMenuFormat: (cb) => subscribe('menu:format', cb),
   onMenuViewMode: (cb) => subscribe('menu:view-mode', cb),
   onMenuToggleTheme: (cb) => subscribe('menu:toggle-theme', cb),
+  onMenuFind: (cb) => subscribe('menu:find', cb),
+  onMenuPalette: (cb) => subscribe('menu:palette', cb),
+  onMenuOutline: (cb) => subscribe('menu:outline', cb),
+  onMenuZen: (cb) => subscribe('menu:zen', cb),
+  onMenuExportPdf: (cb) => subscribe('menu:export-pdf', cb),
 
   platform: process.platform,
 });
