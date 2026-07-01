@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Lock the renderer down: no remote content, no inline eval. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Markdown Viewer</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="toolbar" class="toolbar">
+      <div class="toolbar-group">
+        <button data-action="open" title="Open (Ctrl/Cmd+O)">Open</button>
+        <button data-action="save" title="Save (Ctrl/Cmd+S)">Save</button>
+        <button data-action="new" title="New (Ctrl/Cmd+N)">New</button>
+      </div>
+      <span class="sep"></span>
+      <div class="toolbar-group">
+        <button data-format="bold" title="Bold (Ctrl/Cmd+B)"><b>B</b></button>
+        <button data-format="italic" title="Italic (Ctrl/Cmd+I)"><i>I</i></button>
+        <button data-format="strike" title="Strikethrough"><s>S</s></button>
+        <button data-format="h1" title="Heading 1">H1</button>
+        <button data-format="h2" title="Heading 2">H2</button>
+        <button data-format="h3" title="Heading 3">H3</button>
+        <button data-format="quote" title="Blockquote">&ldquo;</button>
+        <button data-format="code" title="Inline code">&lt;/&gt;</button>
+        <button data-format="codeblock" title="Code block">{ }</button>
+        <button data-format="ul" title="Bulleted list">&bull;</button>
+        <button data-format="ol" title="Numbered list">1.</button>
+        <button data-format="task" title="Task list">&#9745;</button>
+        <button data-format="link" title="Link (Ctrl/Cmd+K)">&#128279;</button>
+        <button data-format="image" title="Image">&#128247;</button>
+        <button data-format="table" title="Table">&#9636;</button>
+        <button data-format="hr" title="Horizontal rule">&mdash;</button>
+      </div>
+      <span class="spacer"></span>
+      <div class="toolbar-group view-modes">
+        <button data-view="editor" title="Editor only (Ctrl/Cmd+1)">Editor</button>
+        <button data-view="split" class="active" title="Split (Ctrl/Cmd+2)">Split</button>
+        <button data-view="preview" title="Preview only (Ctrl/Cmd+3)">Preview</button>
+      </div>
+      <button id="themeToggle" data-action="theme" title="Toggle theme (Ctrl/Cmd+Shift+D)">&#9789;</button>
+    </div>
+
+    <main id="workspace" class="workspace view-split">
+      <section id="editorPane" class="pane editor-pane">
+        <textarea
+          id="editor"
+          spellcheck="true"
+          placeholder="# Start writing Markdown…&#10;&#10;Open a file, or just start typing. The preview updates live."
+        ></textarea>
+      </section>
+      <div id="divider" class="divider" title="Drag to resize"></div>
+      <section id="previewPane" class="pane preview-pane">
+        <article id="preview" class="markdown-body"></article>
+      </section>
+    </main>
+
+    <footer id="statusbar" class="statusbar">
+      <span id="fileName">Untitled</span>
+      <span id="dirtyDot" class="dirty-dot" hidden>&bull;</span>
+      <span class="spacer"></span>
+      <span id="cursorPos">Ln 1, Col 1</span>
+      <span class="sep-dot">&middot;</span>
+      <span id="wordCount">0 words</span>
+      <span class="sep-dot">&middot;</span>
+      <span id="charCount">0 chars</span>
+    </footer>
+
+    <script src="dist/bundle.js"></script>
+  </body>
+</html>

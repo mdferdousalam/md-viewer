@@ -1,0 +1,44 @@
+name: Release
+
+# Build installers for macOS, Windows, and Linux and publish them to a
+# GitHub Release whenever a version tag (e.g. v1.0.0) is pushed.
+on:
+  push:
+    tags:
+      - 'v*'
+  # Allow manual runs (won't publish unless a matching release/tag exists).
+  workflow_dispatch:
+
+permissions:
+  contents: write # required for electron-builder to create/upload the Release
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer bundle
+        run: npm run build:renderer
+
+      - name: Build & publish installers
+        # electron-builder auto-detects the platform from the runner OS and
+        # publishes artifacts + latest*.yml update metadata to the GitHub Release.
+        run: npx --no-install electron-builder --publish always
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

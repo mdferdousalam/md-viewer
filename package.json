@@ -1,0 +1,97 @@
+{
+  "name": "md-viewer",
+  "productName": "Markdown Viewer",
+  "version": "1.0.0",
+  "description": "A simple, fast cross-platform Markdown viewer and editor for Windows, macOS, and Linux.",
+  "author": {
+    "name": "Ferdous",
+    "email": "ferdous@fintant.ai"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mdferdousalam/md-viewer.git"
+  },
+  "main": "src/main/main.js",
+  "scripts": {
+    "build:renderer": "node build.js",
+    "start": "npm run build:renderer && electron .",
+    "dev": "node build.js --watch",
+    "dist": "npm run build:renderer && electron-builder",
+    "dist:win": "npm run build:renderer && electron-builder --win",
+    "dist:mac": "npm run build:renderer && electron-builder --mac",
+    "dist:linux": "npm run build:renderer && electron-builder --linux",
+    "pack": "npm run build:renderer && electron-builder --dir"
+  },
+  "dependencies": {
+    "dompurify": "^3.1.6",
+    "electron-updater": "^6.8.9",
+    "highlight.js": "^11.10.0",
+    "marked": "^13.0.3",
+    "marked-gfm-heading-id": "^4.1.0",
+    "marked-highlight": "^2.1.4"
+  },
+  "devDependencies": {
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3",
+    "esbuild": "^0.23.0"
+  },
+  "build": {
+    "appId": "ai.fintant.mdviewer",
+    "productName": "Markdown Viewer",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mdferdousalam",
+        "repo": "md-viewer"
+      }
+    ],
+    "files": [
+      "src/main/**/*",
+      "src/renderer/index.html",
+      "src/renderer/dist/**/*",
+      "assets/**/*"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "assets"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office"
+    },
+    "fileAssociations": [
+      {
+        "ext": "md",
+        "name": "Markdown Document",
+        "role": "Editor"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown Document",
+        "role": "Editor"
+      }
+    ]
+  }
+}
