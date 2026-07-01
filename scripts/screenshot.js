@@ -48,5 +48,10 @@ app.whenReady().then(async () => {
   const img = await win.webContents.capturePage();
   fs.writeFileSync(out, img.toPNG());
   console.log('WROTE', out);
-  app.quit();
+  // Force-exit: app.quit() can hang here because of the offscreen GPU helper,
+  // which would leave the process (and the launching shell) running forever.
+  app.exit(0);
 });
+
+// Safety net: never let this dev tool hang the terminal.
+setTimeout(() => { console.error('screenshot timed out'); app.exit(1); }, 20000);
