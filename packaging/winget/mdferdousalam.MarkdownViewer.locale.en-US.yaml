@@ -1,0 +1,17 @@
+PackageIdentifier: mdferdousalam.MarkdownViewer
+PackageVersion: 1.0.1
+PackageLocale: en-US
+Publisher: Ferdous
+PublisherUrl: https://github.com/mdferdousalam
+PackageName: Markdown Viewer
+PackageUrl: https://github.com/mdferdousalam/md-viewer
+License: MIT
+LicenseUrl: https://github.com/mdferdousalam/md-viewer/blob/main/LICENSE
+ShortDescription: A simple, fast cross-platform Markdown viewer and editor.
+Moniker: md-viewer
+Tags:
+  - markdown
+  - editor
+  - viewer
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

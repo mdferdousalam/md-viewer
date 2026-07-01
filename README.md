@@ -13,6 +13,40 @@ Grab the installer for your operating system from the
 > the first time you open it. Steps to get past it are below — this is expected
 > for indie apps and safe to proceed.
 
+### ⌨️ Install from the terminal
+
+**macOS or Linux** — one line (downloads and installs the latest release; clears the
+macOS quarantine flag for you):
+```sh
+curl -fsSL https://raw.githubusercontent.com/mdferdousalam/md-viewer/main/install.sh | sh
+```
+
+**Windows** (PowerShell):
+```powershell
+irm https://raw.githubusercontent.com/mdferdousalam/md-viewer/main/install.ps1 | iex
+```
+
+**Homebrew** (macOS) — `brew upgrade` keeps it up to date:
+```sh
+brew tap mdferdousalam/tap
+brew install --cask md-viewer
+```
+> If Homebrew refuses with an *"untrusted tap"* message (newer Homebrew versions),
+> run `brew trust --cask mdferdousalam/tap/md-viewer` once, then re-run the install.
+
+**Scoop** (Windows) — `scoop update md-viewer` keeps it up to date:
+```powershell
+scoop bucket add md-viewer https://github.com/mdferdousalam/md-viewer
+scoop install md-viewer
+```
+
+**winget** (Windows) — available once the manifest is accepted into the community repo:
+```powershell
+winget install mdferdousalam.MarkdownViewer
+```
+
+Prefer a graphical installer? Use the manual per-OS downloads below.
+
 ### 🍎 macOS
 1. Download `Markdown-Viewer-<version>-universal.dmg` (a single **universal** build that runs on both **Intel** and **Apple Silicon** Macs)
 2. Open it and drag **Markdown Viewer** into your **Applications** folder
@@ -23,7 +57,7 @@ Grab the installer for your operating system from the
    ```
 
 ### 🪟 Windows
-1. Download `Markdown Viewer Setup <version>.exe`
+1. Download `Markdown-Viewer-Setup-<version>.exe`
 2. Run it. If Microsoft Defender SmartScreen appears → **More info** → **Run anyway**
 3. Follow the installer (choose folder, create desktop shortcut)
 4. Prefer no install? Download the **portable** `.exe` and just run it.
@@ -31,12 +65,12 @@ Grab the installer for your operating system from the
 ### 🐧 Linux
 - **AppImage** (works on most distros, no install):
   ```bash
-  chmod +x "Markdown Viewer-<version>.AppImage"
-  ./"Markdown Viewer-<version>.AppImage"
+  chmod +x Markdown-Viewer-<version>.AppImage
+  ./Markdown-Viewer-<version>.AppImage
   ```
 - **Debian/Ubuntu** (`.deb`):
   ```bash
-  sudo apt install ./"Markdown Viewer_<version>_amd64.deb"
+  sudo apt install ./md-viewer_<version>_amd64.deb
   ```
 
 ### Updates

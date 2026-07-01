@@ -42,3 +42,44 @@ jobs:
         run: npx --no-install electron-builder --publish always
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # After all installers are published, refresh the package-manager definitions
+  # (Scoop + winget in this repo, Homebrew cask in the tap repo) with the new
+  # version and checksums.
+  packages:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Regenerate package definitions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional PAT with write access to mdferdousalam/homebrew-tap. If unset,
+          # the Homebrew cask push is skipped (Scoop + winget still update).
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -n "$TAP_TOKEN" ]; then
+            GH_TOKEN="$TAP_TOKEN" PUSH_CASK=1 sh scripts/update-packages.sh "$VERSION"
+          else
+            echo "HOMEBREW_TAP_TOKEN not set - updating Scoop + winget only, skipping cask push."
+            GH_TOKEN="$GITHUB_TOKEN" PUSH_CASK=0 sh scripts/update-packages.sh "$VERSION"
+          fi
+
+      - name: Commit updated manifests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket packaging
+          if git diff --cached --quiet; then
+            echo "No manifest changes to commit."
+          else
+            git commit -m "chore: update package manifests for ${GITHUB_REF_NAME}"
+            git push origin main
+          fi
