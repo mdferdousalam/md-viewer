@@ -14,7 +14,7 @@ Grab the installer for your operating system from the
 > for indie apps and safe to proceed.
 
 ### 🍎 macOS
-1. Download `Markdown Viewer-<version>.dmg`
+1. Download `Markdown-Viewer-<version>-universal.dmg` (a single **universal** build that runs on both **Intel** and **Apple Silicon** Macs)
 2. Open it and drag **Markdown Viewer** into your **Applications** folder
 3. First launch: **right-click** the app → **Open** → **Open** (bypasses Gatekeeper once)
 4. If Apple Silicon says *"app is damaged and can't be opened"*, run this once in Terminal:
