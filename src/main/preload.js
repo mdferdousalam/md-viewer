@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('api', {
   // result. Renderer subscribes with onApiRequest and replies via sendApiResponse.
   onApiRequest: (cb) => subscribe('api:request', cb),
   sendApiResponse: (payload) => ipcRenderer.send('api:response', payload),
+  // Fire a document event for the control API's event stream (opened/saved/changed).
+  emitEvent: (type, payload) => ipcRenderer.send('doc:event', { type, payload }),
 
   // Events (main -> renderer). Each returns an unsubscribe fn.
   onFileOpened: (cb) => subscribe('file:opened', cb),

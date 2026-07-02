@@ -99,6 +99,11 @@ highlighting are all baked in.
 so anything that rewrites it — another editor, a script, or an AI agent — updates the
 preview live. If you have unsaved edits, it asks before replacing them.
 
+**LLM agents & scripting:** the viewer can also be driven by a local control API and an
+[MCP](https://modelcontextprotocol.io) server (Claude Desktop / Claude Code) — read and
+edit the open document by section, switch views, export, and even screenshot the rendered
+preview so a model can see the result. See **[docs/AUTOMATION.md](docs/AUTOMATION.md)**.
+
 ## Features
 
 - 📝 **Live split preview** — editor + rendered Markdown side by side, with synced scrolling
