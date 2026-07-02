@@ -29,9 +29,19 @@ DMG="Markdown-Viewer-${VERSION}-universal.dmg"
 PORTABLE="Markdown-Viewer-${VERSION}.exe"
 SETUP="Markdown-Viewer-Setup-${VERSION}.exe"
 
-echo "Downloading release assets..."
-gh release download "$TAG" --repo "$REPO" --dir "$WORK" \
-  --pattern "$DMG" --pattern "$PORTABLE" --pattern "$SETUP"
+# ASSET_DIR lets you point at already-downloaded installers instead of fetching
+# them from the release (useful on a flaky network, or to re-run offline).
+if [ -n "${ASSET_DIR:-}" ]; then
+  echo "Using pre-downloaded assets from $ASSET_DIR"
+  for f in "$DMG" "$PORTABLE" "$SETUP"; do
+    [ -f "$ASSET_DIR/$f" ] || { echo "Missing $ASSET_DIR/$f" >&2; exit 1; }
+    cp "$ASSET_DIR/$f" "$WORK/$f"
+  done
+else
+  echo "Downloading release assets..."
+  gh release download "$TAG" --repo "$REPO" --dir "$WORK" \
+    --pattern "$DMG" --pattern "$PORTABLE" --pattern "$SETUP"
+fi
 
 sha256() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'

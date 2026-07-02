@@ -1,6 +1,6 @@
 cask "md-viewer" do
-  version "1.1.0"
-  sha256 "45a4698a1072f99075489da4a20b9ea55454d6cbb592ad33168577f1a071e14e"
+  version "1.2.0"
+  sha256 "961aa9c984da4395e3b103ab212639214bdecd357e1f683f5d240678daee7b1a"
 
   url "https://github.com/mdferdousalam/md-viewer/releases/download/v#{version}/Markdown-Viewer-#{version}-universal.dmg"
   name "Markdown Viewer"
