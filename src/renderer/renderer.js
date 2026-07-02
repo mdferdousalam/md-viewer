@@ -316,10 +316,36 @@ function loadContent(filePath, content) {
   editor.value = content;
   state.filePath = filePath;
   state.savedContent = content;
+  window.api.setWatchedFile?.(filePath);
   scheduleRender();
   editor.focus();
   editor.setSelectionRange(0, 0);
   editor.scrollTop = 0;
+}
+
+// A program/agent (or another editor) rewrote the open file on disk.
+async function onExternalChange({ filePath, content }) {
+  if (filePath !== state.filePath) return;      // stale watcher for a closed file
+  if (content === state.savedContent) return;   // nothing new (incl. our own save)
+  if (!isDirty()) {
+    // Reload silently, keeping the caret/scroll roughly where they were.
+    const pos = Math.min(editor.selectionStart, content.length);
+    const top = editor.scrollTop;
+    editor.value = content;
+    state.savedContent = content;
+    scheduleRender();
+    editor.setSelectionRange(pos, pos);
+    editor.scrollTop = top;
+    flash('Reloaded — file changed on disk');
+    return;
+  }
+  // Unsaved edits + disk changed: let the user decide, never clobber silently.
+  if (await window.api.confirmReload()) {
+    editor.value = content;
+    state.savedContent = content;
+    scheduleRender();
+    flash('Reloaded from disk');
+  }
 }
 
 async function maybeConfirmDiscard() {
@@ -338,6 +364,7 @@ async function doSave(forceDialog = false) {
   if (!res || res.error) return false;
   state.filePath = res.filePath;
   state.savedContent = editor.value;
+  window.api.setWatchedFile?.(res.filePath);
   scheduleRender();
   return true;
 }
@@ -349,18 +376,77 @@ async function doExportHtml() {
   });
 }
 
+// Collect every loaded stylesheet's rules so the export is fully self-contained
+// (markdown typography + KaTeX + highlight.js + Mermaid inline styles included).
+function collectCss() {
+  let css = '';
+  for (const sheet of document.styleSheets) {
+    try { for (const rule of sheet.cssRules) css += rule.cssText + '\n'; }
+    catch (_) { /* opaque/cross-origin sheet — skip */ }
+  }
+  return css;
+}
+
+// Neutralise the app-shell layout (fixed height, hidden overflow) so the export
+// is a normal, scrollable, printable document.
+const EXPORT_RESET = `
+html,body{height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;position:static!important}
+body.markdown-body{display:block!important;max-width:840px;margin:2rem auto;padding:0 1.25rem;background:var(--bg)!important;color:var(--text)!important}
+`;
+
+// Built from the live preview DOM so rendered diagrams + math are baked in.
+// Always light-themed for readable print/PDF regardless of the app theme.
 function buildStandaloneHtml() {
   const title = (baseName(state.filePath) || 'Markdown Export').replace(/\.[^.]+$/, '');
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title>
-<style>${EXPORT_CSS}</style></head><body class="markdown-body">${renderMarkdown(editor.value)}</body></html>`;
+  return `<!DOCTYPE html><html data-theme="light"><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title>
+<style>${collectCss()}\n${EXPORT_RESET}</style></head>
+<body class="markdown-body">${preview.innerHTML}</body></html>`;
 }
 
 async function copyHtml() {
-  try { await navigator.clipboard.writeText(renderMarkdown(editor.value)); flash('HTML copied to clipboard'); }
+  try { await navigator.clipboard.writeText(preview.innerHTML); flash('HTML copied to clipboard'); }
   catch (_) { flash('Copy failed'); }
 }
 
-function exportPdf() { window.print(); }
+async function exportPdf() {
+  const res = await window.api.exportPdf({
+    html: buildStandaloneHtml(),
+    title: (baseName(state.filePath) || 'export').replace(/\.[^.]+$/, ''),
+  });
+  if (res && res.error) flash('PDF export failed');
+  else if (res) flash('PDF exported');
+}
+
+// ============================================================
+// Programmatic API — ops the main process can request over the bridge
+// (headless CLI export today; the local control API in a later phase).
+// ============================================================
+
+const API_OPS = {
+  // Render markdown fully (incl. async Mermaid) and return standalone HTML.
+  renderForExport: async (content) => {
+    editor.value = content;
+    preview.innerHTML = renderMarkdown(editor.value);
+    preview.querySelectorAll('a[href]').forEach((a) => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    });
+    await renderMermaid();
+    return buildStandaloneHtml();
+  },
+};
+
+if (window.api.onApiRequest) {
+  window.api.onApiRequest(async ({ id, op, args }) => {
+    try {
+      const fn = API_OPS[op];
+      if (!fn) throw new Error(`unknown op: ${op}`);
+      window.api.sendApiResponse({ id, result: await fn(args) });
+    } catch (err) {
+      window.api.sendApiResponse({ id, error: err.message });
+    }
+  });
+}
 
 // ============================================================
 // Formatting
@@ -712,6 +798,7 @@ editor.addEventListener('keyup', updateCursor);
 editor.addEventListener('click', updateCursor);
 
 window.api.onFileOpened(({ filePath, content }) => loadContent(filePath, content));
+window.api.onExternalChange(onExternalChange);
 window.api.onMenuNew(doNew);
 window.api.onMenuSave(() => doSave(false));
 window.api.onMenuSaveAs(() => doSave(true));
@@ -755,12 +842,6 @@ window.addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefau
 // ============================================================
 // Content constants
 // ============================================================
-
-const EXPORT_CSS = `
-body{max-width:820px;margin:2rem auto;padding:0 1.25rem;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.7;color:#24292f}
-pre{background:#f6f8fa;padding:1rem;border-radius:8px;overflow:auto}code{background:rgba(175,184,193,.2);padding:.2em .4em;border-radius:6px;font-size:85%}
-pre code{background:none;padding:0}blockquote{border-left:4px solid #d0d7de;margin:0;padding:0 1rem;color:#57606a}
-table{border-collapse:collapse}th,td{border:1px solid #d0d7de;padding:.4rem .8rem}img{max-width:100%}h1,h2{border-bottom:1px solid #d0d7de;padding-bottom:.3em}a{color:#0969da}`;
 
 const WELCOME = `# Welcome to Markdown Viewer
 

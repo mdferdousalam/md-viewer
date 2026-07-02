@@ -79,6 +79,26 @@ Releases page on launch and installs new versions in the background.
 On **macOS**, auto-update needs code signing, so for now just re-download the latest
 `.dmg` when a new version ships.
 
+## Command line & automation
+
+Once installed, drive the viewer from a terminal or a script (the installer puts a
+`md-viewer` command on your `PATH`):
+
+```sh
+md-viewer notes.md                          # open in the app
+md-viewer export notes.md --to pdf          # write notes.pdf (headless, no window)
+md-viewer export notes.md --to html --out out.html
+md-viewer render notes.md --to html         # print rendered HTML to stdout
+cat notes.md | md-viewer render - --to html # read from stdin
+```
+
+Exports are fully self-contained — Mermaid diagrams, KaTeX math, and syntax
+highlighting are all baked in.
+
+**Live reload:** the open document reloads automatically when the file changes on disk,
+so anything that rewrites it — another editor, a script, or an AI agent — updates the
+preview live. If you have unsaved edits, it asks before replacing them.
+
 ## Features
 
 - 📝 **Live split preview** — editor + rendered Markdown side by side, with synced scrolling

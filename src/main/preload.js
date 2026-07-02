@@ -22,12 +22,22 @@ contextBridge.exposeInMainWorld('api', {
   openDialog: () => ipcRenderer.invoke('dialog:open'),
   save: (payload) => ipcRenderer.invoke('file:save', payload),
   exportHtml: (payload) => ipcRenderer.invoke('file:export-html', payload),
+  exportPdf: (payload) => ipcRenderer.invoke('file:export-pdf', payload),
   readFile: (filePath) => ipcRenderer.invoke('file:read', filePath),
   confirmDiscard: () => ipcRenderer.invoke('dialog:confirm-discard'),
+  confirmReload: () => ipcRenderer.invoke('dialog:confirm-reload'),
   reportDirty: (isDirty) => ipcRenderer.send('doc:dirty-state', isDirty),
+  // Tell main which file to watch for external changes (null = stop watching).
+  setWatchedFile: (filePath) => ipcRenderer.send('doc:watch', filePath),
+
+  // Generic request bridge: main asks the renderer to run an op and awaits the
+  // result. Renderer subscribes with onApiRequest and replies via sendApiResponse.
+  onApiRequest: (cb) => subscribe('api:request', cb),
+  sendApiResponse: (payload) => ipcRenderer.send('api:response', payload),
 
   // Events (main -> renderer). Each returns an unsubscribe fn.
   onFileOpened: (cb) => subscribe('file:opened', cb),
+  onExternalChange: (cb) => subscribe('file:external-change', cb),
   onMenuNew: (cb) => subscribe('menu:new', cb),
   onMenuSave: (cb) => subscribe('menu:save', cb),
   onMenuSaveAs: (cb) => subscribe('menu:save-as', cb),
