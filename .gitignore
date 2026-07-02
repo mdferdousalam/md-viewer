@@ -4,3 +4,14 @@ src/renderer/dist/
 *.log
 .DS_Store
 .claude/settings.local.json
+
+# Secrets & signing material — never commit
+.env
+.env.*
+*.pem
+*.p12
+*.pfx
+*.key
+*.keystore
+*.cer
+*.crt

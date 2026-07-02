@@ -56,7 +56,7 @@ cat > "$ROOT/bucket/md-viewer.json" <<EOF
     "version": "$VERSION",
     "description": "A simple, fast cross-platform Markdown viewer and editor.",
     "homepage": "https://github.com/$REPO",
-    "license": "MIT",
+    "license": "Freeware",
     "architecture": {
         "64bit": {
             "url": "$REL/$TAG/$PORTABLE#/md-viewer.exe",
@@ -114,7 +114,8 @@ Publisher: Ferdous
 PublisherUrl: https://github.com/mdferdousalam
 PackageName: Markdown Viewer
 PackageUrl: https://github.com/$REPO
-License: MIT
+License: Proprietary
+Copyright: Copyright (c) 2026 Ferdous. All Rights Reserved.
 LicenseUrl: https://github.com/$REPO/blob/main/LICENSE
 ShortDescription: A simple, fast cross-platform Markdown viewer and editor.
 Moniker: md-viewer

@@ -2,7 +2,7 @@
     "version": "1.1.0",
     "description": "A simple, fast cross-platform Markdown viewer and editor.",
     "homepage": "https://github.com/mdferdousalam/md-viewer",
-    "license": "MIT",
+    "license": "Freeware",
     "architecture": {
         "64bit": {
             "url": "https://github.com/mdferdousalam/md-viewer/releases/download/v1.1.0/Markdown-Viewer-1.1.0.exe#/md-viewer.exe",
