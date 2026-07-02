@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -23,16 +24,59 @@ function userDataDir() {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), name);
 }
 
-function discovery() {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function readDiscovery() {
   const f = path.join(userDataDir(), 'api.json');
-  if (!fs.existsSync(f)) {
-    throw new Error("Markdown Viewer control API not found. Start the app with:  md-viewer --serve");
-  }
-  return JSON.parse(fs.readFileSync(f, 'utf8'));
+  if (!fs.existsSync(f)) return null;
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; }
+}
+
+async function reachable(d) {
+  if (!d || !d.port || !d.token) return false;
+  try {
+    const res = await fetch(`http://127.0.0.1:${d.port}/health`, { headers: { Authorization: `Bearer ${d.token}` } });
+    if (!res.ok) return false;
+    const body = await res.json().catch(() => ({}));
+    return body.ready === true; // wait until the renderer can service requests
+  } catch { return false; }
+}
+
+// Launch the viewer with the control API enabled. MDV_SERVE_ARGV is set by the
+// `md-viewer mcp` subcommand; fall back to the `md-viewer` PATH shim otherwise.
+// ELECTRON_RUN_AS_NODE must be cleared so we boot the real GUI app, not Node mode.
+function launchApp() {
+  let argv = null;
+  try { argv = JSON.parse(process.env.MDV_SERVE_ARGV || 'null'); } catch { /* ignore */ }
+  if (!Array.isArray(argv) || !argv.length) argv = ['md-viewer', '--serve'];
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  spawn(argv[0], argv.slice(1), { detached: true, stdio: 'ignore', env }).unref();
+}
+
+let cached = null;
+let ensuring = null;
+function ensureApi() {
+  if (cached) return Promise.resolve(cached);
+  if (ensuring) return ensuring;
+  ensuring = (async () => {
+    let d = readDiscovery();
+    if (await reachable(d)) { cached = d; return cached; }
+    // Not running (or stale discovery file) — start it and wait for readiness.
+    launchApp();
+    for (let i = 0; i < 40; i++) { // ~20s
+      await sleep(500);
+      d = readDiscovery();
+      if (await reachable(d)) { cached = d; return cached; }
+    }
+    throw new Error('Started Markdown Viewer but its control API did not come up. Try launching it manually: md-viewer --serve');
+  })();
+  ensuring.finally(() => { ensuring = null; });
+  return ensuring;
 }
 
 async function call(method, route, body) {
-  const { port, token } = discovery();
+  const { port, token } = await ensureApi();
   let res;
   try {
     res = await fetch(`http://127.0.0.1:${port}${route}`, {
@@ -41,7 +85,8 @@ async function call(method, route, body) {
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (e) {
-    throw new Error(`Can't reach Markdown Viewer on 127.0.0.1:${port} — is it running with --serve? (${e.code || e.message})`);
+    cached = null; // connection died — re-discover / relaunch on the next call
+    throw new Error(`Lost connection to Markdown Viewer (${e.code || e.message}).`);
   }
   if (!res.ok) throw new Error(`${method} ${route} → ${res.status}: ${await res.text()}`);
   return res;
@@ -108,4 +153,8 @@ server.tool('screenshot_preview', 'Capture the rendered preview as a PNG image s
     return { content: [{ type: 'image', data: buf.toString('base64'), mimeType: 'image/png' }] };
   }));
 
-await server.connect(new StdioServerTransport());
+// Async IIFE (not top-level await) so this bundles cleanly to CommonJS for the
+// `md-viewer mcp` subcommand as well as running as ESM standalone.
+(async () => {
+  await server.connect(new StdioServerTransport());
+})();

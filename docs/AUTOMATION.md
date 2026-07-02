@@ -74,25 +74,25 @@ curl -s -H "Authorization: Bearer $TOK" -X POST http://127.0.0.1:$PORT/edit \
 
 ## 4. MCP server (for Claude Desktop / Claude Code)
 
-The `mcp/` folder is a stdio [MCP](https://modelcontextprotocol.io) server that exposes the
-control API as typed tools. It requires the app to be running with `--serve`.
-
-```sh
-cd mcp && npm install
-```
-
-Add it to your MCP client config (adjust the path):
+The app ships with a built-in [MCP](https://modelcontextprotocol.io) stdio server. Adding this
+to your MCP client config is the **only** setup — no `npm install`, no file paths:
 
 ```json
 {
   "mcpServers": {
     "md-viewer": {
-      "command": "node",
-      "args": ["/absolute/path/to/md-viewer/mcp/index.js"]
+      "command": "md-viewer",
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+You don't need to start the app first, either: the first tool call **auto-launches** the viewer
+with the control API and waits for it to be ready. If a viewer is already open, it's reused.
+
+> Developer note: `mcp/index.js` also runs standalone — `cd mcp && npm install && node index.js` —
+> handy when hacking on the server itself.
 
 ### Tools
 

@@ -9,12 +9,13 @@
 //   md-viewer open <file>                  open <file> in the GUI
 //   md-viewer export <file> --to pdf|html [--out <path>]   headless export
 //   md-viewer render <file|-> [--to html]  headless render to stdout (- = stdin)
+//   md-viewer mcp                          run the MCP stdio server
 //
 // Returns null for anything unrecognised so the caller falls back to the
 // existing GUI file-argument behaviour. `headless: true` means "do the job
 // without a visible window, then exit".
 
-const VERBS = new Set(['open', 'export', 'render']);
+const VERBS = new Set(['open', 'export', 'render', 'mcp']);
 
 function parseCli(argv, isPackaged) {
   // In a packaged app argv is [exe, ...args]; running via `electron .` it is
@@ -40,6 +41,9 @@ function parseCli(argv, isPackaged) {
   }
   if (cmd === 'render') {
     return { headless: true, command: 'render', file, to: (opts.to || 'html').toLowerCase(), out: opts.out };
+  }
+  if (cmd === 'mcp') {
+    return { command: 'mcp' };
   }
   if (cmd === 'open') {
     return { headless: false, command: 'open', file };
