@@ -29,6 +29,7 @@
     "electron-updater": "^6.8.9"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "dompurify": "^3.1.6",
     "electron": "^31.3.1",
     "electron-builder": "^24.13.3",
@@ -38,7 +39,8 @@
     "marked": "^13.0.3",
     "marked-gfm-heading-id": "^4.1.0",
     "marked-highlight": "^2.1.4",
-    "mermaid": "^11.16.0"
+    "mermaid": "^11.16.0",
+    "zod": "^3.23.8"
   },
   "build": {
     "appId": "ai.fintant.mdviewer",
@@ -57,6 +59,9 @@
       "src/renderer/dist/bundle.js",
       "src/renderer/dist/bundle.css",
       "assets/**/*"
+    ],
+    "extraResources": [
+      { "from": "mcp/dist/server.cjs", "to": "mcp-server.cjs" }
     ],
     "directories": {
       "output": "release",

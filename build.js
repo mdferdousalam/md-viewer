@@ -30,14 +30,30 @@ const options = {
   },
 };
 
+// The MCP server, bundled into ONE self-contained CommonJS file (SDK + zod
+// inlined). Shipped as an extraResource so `md-viewer mcp` can run it in Node
+// mode without any node_modules resolution or ESM-in-asar trouble.
+const mcpOptions = {
+  entryPoints: [path.join(__dirname, 'mcp/index.js')],
+  bundle: true,
+  outfile: path.join(__dirname, 'mcp/dist/server.cjs'),
+  platform: 'node',
+  format: 'cjs',
+  target: ['node18'],
+  minify: !watch,
+  logLevel: 'info',
+};
+
 async function run() {
   if (watch) {
     const ctx = await esbuild.context(options);
     await ctx.watch();
-    console.log('esbuild: watching renderer for changes…');
+    const mcpCtx = await esbuild.context(mcpOptions);
+    await mcpCtx.watch();
+    console.log('esbuild: watching renderer + MCP server for changes…');
   } else {
-    await esbuild.build(options);
-    console.log('esbuild: renderer bundle built.');
+    await Promise.all([esbuild.build(options), esbuild.build(mcpOptions)]);
+    console.log('esbuild: renderer + MCP server bundles built.');
   }
 }
 

@@ -523,6 +523,19 @@ function serveConfig(argv) {
   return { enabled: true, port };
 }
 
+function startServer(serve) {
+  if (apiServer || !serve.enabled) return;
+  apiServer = startApiServer({
+    port: serve.port,
+    version: app.getVersion(),
+    userDataDir: app.getPath('userData'),
+    getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+    rendererRequest,
+    htmlToPdf,
+    openPath: openPathInWindow,
+  });
+}
+
 // ---- Headless mode (CLI export/render, no visible window) ---------------
 
 function readStdin() {
@@ -594,6 +607,28 @@ async function performHeadless(cli) {
   }
 }
 
+// The argv needed to relaunch THIS app with the control API enabled — passed to
+// the MCP server so its auto-launch works in both packaged and dev contexts.
+function serveLaunchArgv() {
+  return app.isPackaged
+    ? [process.execPath, '--serve']
+    : [process.execPath, app.getAppPath(), '--serve'];
+}
+
+// `md-viewer mcp`: run the bundled MCP stdio server as a plain Node process
+// (ELECTRON_RUN_AS_NODE) so its JSON-RPC stdio is clean — no Chromium, no window.
+function runMcp() {
+  const server = app.isPackaged
+    ? path.join(process.resourcesPath, 'mcp-server.cjs')
+    : path.join(__dirname, '..', '..', 'mcp', 'dist', 'server.cjs');
+  const child = require('child_process').spawn(process.execPath, [server], {
+    stdio: 'inherit',
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', MDV_SERVE_ARGV: JSON.stringify(serveLaunchArgv()) },
+  });
+  child.on('exit', (code) => process.exit(code == null ? 0 : code));
+  child.on('error', (err) => { process.stderr.write(`md-viewer mcp: ${err.message}\n`); process.exit(1); });
+}
+
 function runHeadless(cli) {
   app.whenReady().then(async () => {
     if (isMac && app.dock) app.dock.hide();
@@ -612,7 +647,9 @@ function runHeadless(cli) {
 
 const cli = parseCli(process.argv, app.isPackaged);
 
-if (cli && cli.headless) {
+if (cli && cli.command === 'mcp') {
+  runMcp();
+} else if (cli && cli.headless) {
   runHeadless(cli);
 } else {
   // macOS: file opened via Finder / "open with".
@@ -631,6 +668,9 @@ if (cli && cli.headless) {
     app.quit();
   } else {
     app.on('second-instance', (_e, argv) => {
+      // A `md-viewer --serve` relaunch (e.g. the MCP server auto-starting us)
+      // should bring the control API up even if this instance opened without it.
+      if (argv.includes('--serve')) startServer(serveConfig(argv));
       const filePath = firstMarkdownArg(argv);
       if (mainWindow) {
         if (mainWindow.isMinimized()) mainWindow.restore();
@@ -647,18 +687,7 @@ if (cli && cli.headless) {
       mainWindow = createWindow();
       setupAutoUpdate();
 
-      const serve = serveConfig(process.argv);
-      if (serve.enabled) {
-        apiServer = startApiServer({
-          port: serve.port,
-          version: app.getVersion(),
-          userDataDir: app.getPath('userData'),
-          getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
-          rendererRequest,
-          htmlToPdf,
-          openPath: openPathInWindow,
-        });
-      }
+      startServer(serveConfig(process.argv));
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {

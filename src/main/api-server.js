@@ -81,7 +81,9 @@ function startApiServer(ctx) {
 
       // ---- read-only ----
       if (m === 'GET' && p === '/health') {
-        return sendJson(res, 200, { ok: true, version: ctx.version });
+        // `ready` = the renderer window has finished loading, so renderer-backed
+        // routes (/document, /edit, …) will actually respond. Clients wait on this.
+        return sendJson(res, 200, { ok: true, ready: !win.webContents.isLoading(), version: ctx.version });
       }
       if (m === 'GET' && p === '/document') {
         return sendJson(res, 200, await req2('getDocument'));
