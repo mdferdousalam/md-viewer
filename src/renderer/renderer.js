@@ -154,7 +154,18 @@ function scheduleRender() {
     updateStatus();
     buildOutline();
     reportDirty();
+    emitChanged();
   });
+}
+
+// Notify any control-API listeners that the document changed (debounced so a
+// burst of keystrokes yields one event). No-op unless the API server is on.
+let evtTimer;
+function emitChanged() {
+  clearTimeout(evtTimer);
+  evtTimer = setTimeout(() => {
+    window.api.emitEvent?.('changed', { filePath: state.filePath, dirty: isDirty() });
+  }, 400);
 }
 
 function updatePreview() {
@@ -317,6 +328,7 @@ function loadContent(filePath, content) {
   state.filePath = filePath;
   state.savedContent = content;
   window.api.setWatchedFile?.(filePath);
+  window.api.emitEvent?.('opened', { filePath });
   scheduleRender();
   editor.focus();
   editor.setSelectionRange(0, 0);
@@ -365,6 +377,7 @@ async function doSave(forceDialog = false) {
   state.filePath = res.filePath;
   state.savedContent = editor.value;
   window.api.setWatchedFile?.(res.filePath);
+  window.api.emitEvent?.('saved', { filePath: res.filePath });
   scheduleRender();
   return true;
 }
@@ -422,8 +435,67 @@ async function exportPdf() {
 // (headless CLI export today; the local control API in a later phase).
 // ============================================================
 
+// Extract the heading structure straight from the source (fence-aware) so
+// agents get a stable outline without depending on the rendered DOM.
+function outlineFromSource() {
+  const lines = editor.value.split('\n');
+  const out = [];
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^```/.test(lines[i].trim())) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const m = lines[i].match(/^(#{1,6})\s+(.*)$/);
+    if (m) out.push({ level: m[1].length, text: m[2].trim(), line: i });
+  }
+  return out;
+}
+
+function findHeadingLine(lines, heading) {
+  const target = String(heading).trim().toLowerCase();
+  let inFence = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^```/.test(lines[i].trim())) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const m = lines[i].match(/^(#{1,6})\s+(.*)$/);
+    if (m && m[2].trim().toLowerCase() === target) return { index: i, level: m[1].length };
+  }
+  return null;
+}
+
+// First line at or above `level` after startIdx = end of that section's body.
+function sectionEnd(lines, startIdx, level) {
+  let inFence = false;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (/^```/.test(lines[i].trim())) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const m = lines[i].match(/^(#{1,6})\s+/);
+    if (m && m[1].length <= level) return i;
+  }
+  return lines.length;
+}
+
+function insertAtHeading(heading, md, position) {
+  const lines = editor.value.split('\n');
+  const h = findHeadingLine(lines, heading);
+  if (!h) throw new Error(`heading not found: ${heading}`);
+  lines.splice(position === 'before' ? h.index : h.index + 1, 0, md);
+  editor.value = lines.join('\n');
+}
+
+// Replace a section's body (everything under the heading up to the next
+// same-or-higher heading), keeping the heading line itself.
+function replaceSection(heading, md) {
+  const lines = editor.value.split('\n');
+  const h = findHeadingLine(lines, heading);
+  if (!h) throw new Error(`heading not found: ${heading}`);
+  const end = sectionEnd(lines, h.index, h.level);
+  editor.value = lines.slice(0, h.index + 1).concat('', md, '', lines.slice(end)).join('\n');
+}
+
+const wordCount = (t) => (t.trim().match(/\S+/g) || []).length;
+
 const API_OPS = {
-  // Render markdown fully (incl. async Mermaid) and return standalone HTML.
+  // Render given markdown fully (incl. async Mermaid) -> standalone HTML.
   renderForExport: async (content) => {
     editor.value = content;
     preview.innerHTML = renderMarkdown(editor.value);
@@ -433,6 +505,84 @@ const API_OPS = {
     });
     await renderMermaid();
     return buildStandaloneHtml();
+  },
+
+  // Standalone HTML for the CURRENT document (used by /export).
+  getExportHtml: async () => {
+    preview.innerHTML = renderMarkdown(editor.value);
+    preview.querySelectorAll('a[href]').forEach((a) => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    });
+    await renderMermaid();
+    return buildStandaloneHtml();
+  },
+
+  getDocument: async () => ({
+    filePath: state.filePath,
+    content: editor.value,
+    outline: outlineFromSource(),
+    wordCount: wordCount(editor.value),
+    dirty: isDirty(),
+    viewMode: state.viewMode,
+    theme: state.theme,
+  }),
+
+  setContent: async ({ content }) => {
+    editor.value = content;
+    scheduleRender();
+    return { ok: true, wordCount: wordCount(content) };
+  },
+
+  edit: async (body) => {
+    switch (body.op) {
+      case 'append': {
+        const v = editor.value;
+        editor.value = v + (v === '' || v.endsWith('\n') ? '' : '\n') + (body.markdown || '');
+        break;
+      }
+      case 'insertAtHeading':
+        insertAtHeading(body.heading, body.markdown || '', body.position || 'after');
+        break;
+      case 'replaceSection':
+        replaceSection(body.heading, body.markdown || '');
+        break;
+      case 'applyFormat':
+        applyFormat(body.name);
+        break;
+      case 'toggleTask':
+        toggleTaskInSource(body.index | 0, !!body.checked);
+        break;
+      case 'findReplace': {
+        const re = new RegExp(String(body.find).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), body.all ? 'g' : '');
+        editor.value = editor.value.replace(re, body.replace != null ? body.replace : '');
+        break;
+      }
+      default:
+        throw new Error(`unknown edit op: ${body.op}`);
+    }
+    scheduleRender();
+    return { ok: true };
+  },
+
+  setView: async ({ mode, theme, outline, zen } = {}) => {
+    if (mode) setViewMode(mode);
+    if (theme) setTheme(theme);
+    if (outline !== undefined) toggleOutline(!!outline);
+    if (zen !== undefined) toggleZen(!!zen);
+    return { ok: true, viewMode: state.viewMode, theme: state.theme };
+  },
+
+  save: async ({ path } = {}) => {
+    const target = path || state.filePath;
+    if (!target) throw new Error('no file path; provide { "path": ... }');
+    const res = await window.api.save({ filePath: target, content: editor.value, forceDialog: false });
+    if (!res || res.error) throw new Error(res && res.error ? res.error : 'save failed');
+    state.filePath = res.filePath;
+    state.savedContent = editor.value;
+    window.api.setWatchedFile?.(res.filePath);
+    scheduleRender();
+    return { filePath: res.filePath };
   },
 };
 

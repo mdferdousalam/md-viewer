@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { parseCli } = require('./cli');
+const { startApiServer } = require('./api-server');
 
 const isMac = process.platform === 'darwin';
 
@@ -15,6 +16,8 @@ const isMac = process.platform === 'darwin';
 let pendingOpenPath = null;
 /** @type {BrowserWindow | null} */
 let mainWindow = null;
+/** Local control-API server handle (only when launched with --serve / MDV_API). */
+let apiServer = null;
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -429,6 +432,11 @@ ipcMain.handle('dialog:confirm-discard', async (e) => {
   return ['save', 'discard', 'cancel'][response];
 });
 
+// Document events forwarded to the control-API event stream (no-op if off).
+ipcMain.on('doc:event', (_e, evt) => {
+  if (apiServer) apiServer.broadcast(evt);
+});
+
 // Renderer tells us which file (if any) is active so we watch the right one
 // for external changes. Passing null stops watching (e.g. a new/unsaved doc).
 ipcMain.on('doc:watch', (e, filePath) => {
@@ -501,6 +509,18 @@ function setupAutoUpdate() {
 // File opened from OS on Windows/Linux via argv.
 function firstMarkdownArg(argv) {
   return argv.slice(1).find((a) => /\.(md|markdown|mdown|mkd|txt)$/i.test(a) && fs.existsSync(a));
+}
+
+// Enable the opt-in local control API with `--serve [port]`, or MDV_API=1
+// (optional MDV_API_PORT). Off by default.
+function serveConfig(argv) {
+  const idx = argv.indexOf('--serve');
+  const envOn = !!process.env.MDV_API && process.env.MDV_API !== '0';
+  if (idx === -1 && !envOn) return { enabled: false, port: 0 };
+  let port = 0;
+  if (idx !== -1 && argv[idx + 1] && /^\d+$/.test(argv[idx + 1])) port = parseInt(argv[idx + 1], 10);
+  else if (process.env.MDV_API_PORT && /^\d+$/.test(process.env.MDV_API_PORT)) port = parseInt(process.env.MDV_API_PORT, 10);
+  return { enabled: true, port };
 }
 
 // ---- Headless mode (CLI export/render, no visible window) ---------------
@@ -627,11 +647,28 @@ if (cli && cli.headless) {
       mainWindow = createWindow();
       setupAutoUpdate();
 
+      const serve = serveConfig(process.argv);
+      if (serve.enabled) {
+        apiServer = startApiServer({
+          port: serve.port,
+          version: app.getVersion(),
+          userDataDir: app.getPath('userData'),
+          getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+          rendererRequest,
+          htmlToPdf,
+          openPath: openPathInWindow,
+        });
+      }
+
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
           mainWindow = createWindow();
         }
       });
+    });
+
+    app.on('will-quit', () => {
+      if (apiServer) { apiServer.close(); apiServer = null; }
     });
 
     app.on('window-all-closed', () => {
