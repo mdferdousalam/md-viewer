@@ -102,7 +102,7 @@ const wrap = (fn) => async (args) => {
   catch (e) { return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true }; }
 };
 
-const server = new McpServer({ name: 'md-viewer', version: '1.1.0' });
+const server = new McpServer({ name: 'md-viewer', version: '1.2.0' });
 
 server.tool('open_document', 'Open a Markdown file in the viewer.',
   { path: z.string().describe('Absolute path to a Markdown file') },
