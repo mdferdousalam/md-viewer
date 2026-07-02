@@ -37,4 +37,16 @@ Remove-Item $dest -ErrorAction SilentlyContinue
 Write-Host ""
 Write-Host "  Installed Markdown Viewer $($release.tag_name)." -ForegroundColor Green
 Write-Host "  Launch it from the Start Menu or the desktop shortcut."
+
+# CLI shim so scripts and agents can run `md-viewer <subcommand>`
+# (e.g. `md-viewer export notes.md --to pdf`). Best-effort; never fails install.
+try {
+  $exe = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Programs') -Recurse -Filter 'Markdown Viewer.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($exe) {
+    $shimDir = Join-Path $env:LOCALAPPDATA 'Microsoft\WindowsApps'  # on PATH by default
+    if (-not (Test-Path $shimDir)) { New-Item -ItemType Directory -Path $shimDir -Force | Out-Null }
+    Set-Content -Path (Join-Path $shimDir 'md-viewer.cmd') -Value "@echo off`r`n`"$($exe.FullName)`" %*" -Encoding ascii
+    Write-Host "  From a terminal or scripts:  md-viewer <file>" -ForegroundColor Green
+  }
+} catch {}
 Write-Host ""

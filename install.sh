@@ -84,8 +84,18 @@ case "$OS" in
     # the Gatekeeper "unidentified developer" prompt.
     xattr -dr com.apple.quarantine "$DEST" 2>/dev/null || true
 
+    # CLI shim so scripts and agents can run `md-viewer <subcommand>`
+    # (e.g. `md-viewer export notes.md --to pdf`).
+    if [ -w /usr/local/bin ]; then SHIMDIR="/usr/local/bin"; else SHIMDIR="$HOME/.local/bin"; fi
+    mkdir -p "$SHIMDIR"
+    ln -sf "$DEST/Contents/MacOS/${APP_NAME}" "$SHIMDIR/md-viewer"
+
     ok "Installed $APP_NAME $VERSION to $APPDIR"
-    printf '\n  Launch it with:  \033[1mopen -a "%s"\033[0m\n\n' "$APP_NAME"
+    printf '\n  Launch it with:  \033[1mopen -a "%s"\033[0m\n' "$APP_NAME"
+    case ":$PATH:" in
+      *":$SHIMDIR:"*) printf '  From a terminal or scripts:  \033[1mmd-viewer <file>\033[0m\n\n' ;;
+      *) printf '  CLI shim: \033[1m%s/md-viewer\033[0m  (add %s to PATH to use "md-viewer")\n\n' "$SHIMDIR" "$SHIMDIR" ;;
+    esac
     ;;
 
   Linux) # ---------------------------------------------------------- Linux

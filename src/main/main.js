@@ -6,6 +6,8 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const { parseCli } = require('./cli');
 
 const isMac = process.platform === 'darwin';
 
@@ -47,6 +49,8 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  win.on('closed', () => stopWatching(win));
+
   return win;
 }
 
@@ -63,6 +67,34 @@ function openPathInWindow(win, filePath) {
   } catch (err) {
     dialog.showErrorBox('Could not open file', `${filePath}\n\n${err.message}`);
   }
+}
+
+// ---- Live reload: watch the active document for external changes ---------
+// Any program (an editor, a script, an LLM agent) that rewrites the open file
+// on disk triggers a push to the renderer, which reloads it live. `watchFile`
+// polling is used because it survives the write-temp-then-rename that many
+// tools (and atomic savers) use, which `fs.watch` misses.
+
+function stopWatching(win) {
+  if (win.__watch) {
+    fs.unwatchFile(win.__watch.path, win.__watch.listener);
+    win.__watch = null;
+  }
+}
+
+function startWatching(win, filePath) {
+  if (win.__watch && win.__watch.path === filePath) return; // already watching it
+  stopWatching(win);
+  const listener = (curr, prev) => {
+    if (curr.mtimeMs === prev.mtimeMs) return; // touch without content change
+    if (win.isDestroyed()) { fs.unwatchFile(filePath, listener); return; }
+    let content;
+    try { ({ content } = readFileSafe(filePath)); }
+    catch (_) { return; } // removed/renamed mid-write — ignore this tick
+    win.webContents.send('file:external-change', { filePath, content });
+  };
+  fs.watchFile(filePath, { interval: 300 }, listener);
+  win.__watch = { path: filePath, listener };
 }
 
 async function handleOpenDialog(win) {
@@ -111,6 +143,59 @@ async function exportHtml(win, { html, title }) {
   if (canceled || !filePath) return null;
   fs.writeFileSync(filePath, html, 'utf8');
   return { filePath };
+}
+
+// ---- Renderer request bridge --------------------------------------------
+// A generic request/response channel so the main process (CLI, HTTP API) can
+// ask the renderer to perform an operation and await a typed result. The
+// renderer implements the ops (see API_OPS in renderer.js); we correlate
+// replies by id. This is the shared spine reused by headless export and the
+// (future) local control API.
+
+let __reqId = 0;
+const __pending = new Map();
+
+ipcMain.on('api:response', (_e, { id, result, error }) => {
+  const p = __pending.get(id);
+  if (!p) return;
+  __pending.delete(id);
+  clearTimeout(p.timer);
+  if (error) p.reject(new Error(error));
+  else p.resolve(result);
+});
+
+function rendererRequest(win, op, args, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const id = ++__reqId;
+    const timer = setTimeout(() => {
+      __pending.delete(id);
+      reject(new Error(`renderer op '${op}' timed out`));
+    }, timeoutMs);
+    __pending.set(id, { resolve, reject, timer });
+    win.webContents.send('api:request', { id, op, args });
+  });
+}
+
+// Render standalone HTML to a PDF buffer by loading it into a throwaway hidden
+// window and using Chromium's print-to-PDF (clean, content-only, includes
+// rendered diagrams + math). Replaces the old window.print() path.
+async function htmlToPdf(html, existingWin) {
+  const tmp = path.join(os.tmpdir(), `mdv-export-${process.pid}-${__reqId}-${Date.now()}.html`);
+  fs.writeFileSync(tmp, html, 'utf8');
+  // Reuse the caller's window when given (headless export) to avoid spawning a
+  // second renderer process; otherwise make a throwaway one (GUI export).
+  const win = existingWin || new BrowserWindow({
+    show: false,
+    webPreferences: { sandbox: false, contextIsolation: true, nodeIntegration: false, javascript: false },
+  });
+  try {
+    await win.loadFile(tmp);
+    await new Promise((r) => setTimeout(r, 200)); // let fonts/SVG settle
+    return await win.webContents.printToPDF({ printBackground: true });
+  } finally {
+    if (!existingWin) win.destroy();
+    try { fs.unlinkSync(tmp); } catch (_) {}
+  }
 }
 
 // ---- Menu ---------------------------------------------------------------
@@ -300,6 +385,22 @@ ipcMain.handle('file:export-html', (e, payload) => {
   return exportHtml(BrowserWindow.fromWebContents(e.sender), payload);
 });
 
+ipcMain.handle('file:export-pdf', async (e, { html, title }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Export as PDF',
+    defaultPath: (title || 'export') + '.pdf',
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  });
+  if (canceled || !filePath) return null;
+  try {
+    fs.writeFileSync(filePath, await htmlToPdf(html));
+    return { filePath };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('file:read', (e, filePath) => {
   try {
     return readFileSafe(filePath);
@@ -326,6 +427,29 @@ ipcMain.handle('dialog:confirm-discard', async (e) => {
     detail: "Your changes will be lost if you don't save them.",
   });
   return ['save', 'discard', 'cancel'][response];
+});
+
+// Renderer tells us which file (if any) is active so we watch the right one
+// for external changes. Passing null stops watching (e.g. a new/unsaved doc).
+ipcMain.on('doc:watch', (e, filePath) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return;
+  if (filePath) startWatching(win, filePath);
+  else stopWatching(win);
+});
+
+// Asked when the file changed on disk while the user has unsaved edits.
+ipcMain.handle('dialog:confirm-reload', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['Reload', 'Keep My Changes'],
+    defaultId: 0,
+    cancelId: 1,
+    message: 'This file changed on disk',
+    detail: 'Reload it and lose your unsaved changes, or keep what you have?',
+  });
+  return response === 0; // true = reload from disk
 });
 
 // ---- Auto update --------------------------------------------------------
@@ -379,46 +503,139 @@ function firstMarkdownArg(argv) {
   return argv.slice(1).find((a) => /\.(md|markdown|mdown|mkd|txt)$/i.test(a) && fs.existsSync(a));
 }
 
-// macOS: file opened via Finder / "open with".
-app.on('open-file', (event, filePath) => {
-  event.preventDefault();
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    openPathInWindow(mainWindow, filePath);
-  } else {
-    pendingOpenPath = filePath;
-  }
-});
+// ---- Headless mode (CLI export/render, no visible window) ---------------
 
-// Single-instance: focus existing window & open the file passed on 2nd launch.
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
+function readStdin() {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (c) => (data += c));
+    process.stdin.on('end', () => resolve(data));
+    process.stdin.on('error', reject);
+  });
+}
+
+async function performHeadless(cli) {
+  const { command, out } = cli;
+  const to = cli.to;
+
+  let content;
+  let srcPath = cli.file;
+  if (cli.file === '-' || (!cli.file && command === 'render')) {
+    content = await readStdin();
+    srcPath = null;
+  } else if (cli.file) {
+    content = fs.readFileSync(cli.file, 'utf8');
+  } else {
+    throw new Error(`${command}: missing input file`);
+  }
+
+  if (command === 'export' && to !== 'pdf' && to !== 'html') {
+    throw new Error("export: --to must be 'pdf' or 'html'");
+  }
+  if (command === 'render' && to !== 'html') {
+    throw new Error('render: only --to html is supported');
+  }
+
+  // Render in a hidden app window so the full pipeline (incl. Mermaid + KaTeX)
+  // produces the standalone HTML, then export.
+  const win = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+  try {
+    await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+    const html = await rendererRequest(win, 'renderForExport', content);
+
+    if (command === 'render') {
+      if (out) { fs.writeFileSync(out, html); process.stdout.write(`Wrote ${out}\n`); }
+      else process.stdout.write(html);
+      return 0;
+    }
+
+    const base = srcPath ? srcPath.replace(/\.[^.]+$/, '') : 'export';
+    if (to === 'html') {
+      const target = out || `${base}.html`;
+      fs.writeFileSync(target, html);
+      process.stdout.write(`Exported ${target}\n`);
+    } else {
+      const target = out || `${base}.pdf`;
+      fs.writeFileSync(target, await htmlToPdf(html, win)); // reuse this window
+      process.stdout.write(`Exported ${target}\n`);
+    }
+    return 0;
+  } finally {
+    win.destroy();
+  }
+}
+
+function runHeadless(cli) {
+  app.whenReady().then(async () => {
+    if (isMac && app.dock) app.dock.hide();
+    let code = 0;
+    try {
+      code = await performHeadless(cli);
+    } catch (err) {
+      process.stderr.write(`md-viewer: ${err && err.message ? err.message : err}\n`);
+      code = 1;
+    }
+    app.exit(code);
+  });
+}
+
+// ---- Dispatch: headless CLI vs. the interactive GUI ---------------------
+
+const cli = parseCli(process.argv, app.isPackaged);
+
+if (cli && cli.headless) {
+  runHeadless(cli);
 } else {
-  app.on('second-instance', (_e, argv) => {
-    const filePath = firstMarkdownArg(argv);
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-      if (filePath) openPathInWindow(mainWindow, filePath);
+  // macOS: file opened via Finder / "open with".
+  app.on('open-file', (event, filePath) => {
+    event.preventDefault();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      openPathInWindow(mainWindow, filePath);
+    } else {
+      pendingOpenPath = filePath;
     }
   });
 
-  app.whenReady().then(() => {
-    const argPath = firstMarkdownArg(process.argv);
-    if (argPath) pendingOpenPath = argPath;
-
-    buildMenu();
-    mainWindow = createWindow();
-    setupAutoUpdate();
-
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createWindow();
+  // Single-instance: focus existing window & open the file passed on 2nd launch.
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+  } else {
+    app.on('second-instance', (_e, argv) => {
+      const filePath = firstMarkdownArg(argv);
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+        if (filePath) openPathInWindow(mainWindow, filePath);
       }
     });
-  });
 
-  app.on('window-all-closed', () => {
-    if (!isMac) app.quit();
-  });
+    app.whenReady().then(() => {
+      const argPath = (cli && cli.file && fs.existsSync(cli.file) ? cli.file : null) || firstMarkdownArg(process.argv);
+      if (argPath) pendingOpenPath = argPath;
+
+      buildMenu();
+      mainWindow = createWindow();
+      setupAutoUpdate();
+
+      app.on('activate', () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          mainWindow = createWindow();
+        }
+      });
+    });
+
+    app.on('window-all-closed', () => {
+      if (!isMac) app.quit();
+    });
+  }
 }
