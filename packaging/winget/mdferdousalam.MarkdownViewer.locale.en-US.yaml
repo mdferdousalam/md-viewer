@@ -5,7 +5,8 @@ Publisher: Ferdous
 PublisherUrl: https://github.com/mdferdousalam
 PackageName: Markdown Viewer
 PackageUrl: https://github.com/mdferdousalam/md-viewer
-License: MIT
+License: Proprietary
+Copyright: Copyright (c) 2026 Ferdous. All Rights Reserved.
 LicenseUrl: https://github.com/mdferdousalam/md-viewer/blob/main/LICENSE
 ShortDescription: A simple, fast cross-platform Markdown viewer and editor.
 Moniker: md-viewer

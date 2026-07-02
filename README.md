@@ -193,4 +193,12 @@ build.js           # esbuild bundler for the renderer
 
 ## License
 
-MIT
+**© 2026 Ferdous. All Rights Reserved.** This project is **source-available, not open
+source** — the source is published for transparency and reference only, and no rights to
+use, copy, modify, or redistribute it are granted. See [LICENSE](LICENSE).
+
+The **application itself is free to use** under the terms of the [EULA](EULA.md). Bundled
+third-party components remain under their own licenses — see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+External contributions are not accepted at this time.

@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Ferdous. All Rights Reserved.
+   Unauthorized use, copying, modification, or distribution of this source is
+   prohibited. See LICENSE. */
 // Bundles the renderer (marked + DOMPurify + highlight.js + KaTeX + Mermaid +
 // app code) into a single JS + CSS pair so the renderer stays sandboxed
 // (contextIsolation on, nodeIntegration off) and works fully offline.

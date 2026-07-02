@@ -1,3 +1,6 @@
+/* Copyright (c) 2026 Ferdous. All Rights Reserved.
+   Unauthorized use, copying, modification, or distribution of this source is
+   prohibited. See LICENSE. */
 'use strict';
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require('electron');
