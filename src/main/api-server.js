@@ -133,11 +133,11 @@ function startApiServer(ctx) {
       }
       if (m === 'POST' && p === '/export') {
         const { to, out } = await readBody(req);
-        if (to !== 'pdf' && to !== 'html') return sendErr(res, 400, 'to must be "pdf" or "html"');
+        if (to !== 'pdf' && to !== 'html' && to !== 'docx') return sendErr(res, 400, 'to must be "pdf", "html" or "docx"');
         if (!out) return sendErr(res, 400, 'missing "out" path');
-        const html = await req2('getExportHtml');
-        if (to === 'html') fs.writeFileSync(out, html, 'utf8');
-        else fs.writeFileSync(out, await ctx.htmlToPdf(html));
+        if (to === 'docx') fs.writeFileSync(out, await req2('getWordHtml'), 'utf8');
+        else if (to === 'html') fs.writeFileSync(out, await req2('getExportHtml'), 'utf8');
+        else fs.writeFileSync(out, await ctx.htmlToPdf(await req2('getExportHtml')));
         return sendJson(res, 200, { path: out });
       }
 
