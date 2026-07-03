@@ -9,15 +9,17 @@
 // `setRangeText`, `setSelectionRange`, `focus`, and `scrollTop/scrollHeight/
 // clientHeight`. This keeps the migration surgical — no main/preload/MCP changes.
 
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state';
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
   drawSelection, dropCursor, rectangularSelection, crosshairCursor, placeholder as cmPlaceholder,
+  ViewPlugin, Decoration,
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap,
+  syntaxTree,
 } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
 
@@ -69,6 +71,45 @@ const baseTheme = EditorView.theme({
   '.cm-placeholder': { color: 'var(--text-dim)' },
 });
 
+// ---- Live-preview mode (Typora-style) ----------------------------------
+// Conceal inline markdown markers (**, *, `, ~~) on every line EXCEPT the one
+// the caret is on, so prose reads as rendered while the line you're editing
+// shows its raw syntax. The emphasis styling itself comes from mdHighlight.
+const CONCEAL_MARKS = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark']);
+const hideMark = Decoration.replace({});
+
+function buildConceal(view) {
+  const sel = view.state.selection.main;
+  const curFrom = view.state.doc.lineAt(sel.from).from;
+  const curTo = view.state.doc.lineAt(sel.to).to;
+  const marks = [];
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from, to,
+      enter(node) {
+        if (!CONCEAL_MARKS.has(node.name) || node.from === node.to) return;
+        if (node.to >= curFrom && node.from <= curTo) return; // reveal the caret line
+        marks.push([node.from, node.to]);
+      },
+    });
+  }
+  marks.sort((a, b) => a[0] - b[0]);
+  const builder = new RangeSetBuilder();
+  let last = -1;
+  for (const [f, tt] of marks) { if (f < last) continue; builder.add(f, tt, hideMark); last = tt; }
+  return builder.finish();
+}
+
+const livePreviewPlugin = ViewPlugin.fromClass(
+  class {
+    constructor(view) { this.decorations = buildConceal(view); }
+    update(u) {
+      if (u.docChanged || u.selectionSet || u.viewportChanged) this.decorations = buildConceal(u.view);
+    }
+  },
+  { decorations: (v) => v.decorations }
+);
+
 // Build the textarea-shaped facade over a live EditorView.
 export function createEditor(opts) {
   const {
@@ -77,6 +118,7 @@ export function createEditor(opts) {
   } = opts;
 
   const themeCompartment = new Compartment();
+  const liveCompartment = new Compartment(); // holds the live-preview plugin (off by default)
   let cachedDoc = doc; // avoid O(n) doc.toString() on every read; refreshed on change
 
   const updateListener = EditorView.updateListener.of((u) => {
@@ -108,6 +150,7 @@ export function createEditor(opts) {
       keymap.of([...appKeys, ...defaultKeymap, ...historyKeymap, ...foldKeymap]),
       baseTheme,
       themeCompartment.of(EditorView.theme({}, { dark })),
+      liveCompartment.of([]),
       updateListener,
       EditorView.domEventHandlers({ scroll: () => { onScroll && onScroll(); return false; } }),
     ],
@@ -155,6 +198,11 @@ export function createEditor(opts) {
     // CSS vars and switch on their own; this only flips CM's internal assumptions).
     reconfigureTheme(isDark) {
       view.dispatch({ effects: themeCompartment.reconfigure(EditorView.theme({}, { dark: isDark })) });
+    },
+
+    // Toggle Typora-style live preview (conceal inline markers off the caret line).
+    setLiveMode(on) {
+      view.dispatch({ effects: liveCompartment.reconfigure(on ? livePreviewPlugin : []) });
     },
   };
 }
