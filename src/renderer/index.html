@@ -94,6 +94,7 @@
         <div class="tb-group">
           <button class="tb-btn" data-action="files" data-tip="Files sidebar"><svg class="ic"><use href="#i-folder"/></svg></button>
           <button class="tb-btn" data-action="outline" data-tip="Outline"><svg class="ic"><use href="#i-outline"/></svg></button>
+          <button class="tb-btn" data-action="backlinks" data-tip="Backlinks"><svg class="ic"><use href="#i-link"/></svg></button>
           <button class="tb-btn" data-action="palette" data-tip="Commands (⌘⇧P)"><svg class="ic"><use href="#i-search"/></svg></button>
         </div>
         <span class="tb-sep"></span>
@@ -154,6 +155,14 @@
         <section class="pane preview-pane" id="previewPane">
           <article class="markdown-body" id="preview"></article>
         </section>
+
+        <aside class="outline backlinks" id="backlinks" hidden>
+          <div class="outline-head">
+            <span>Backlinks</span>
+            <button class="icon-btn" data-action="backlinks" data-tip="Hide backlinks"><svg class="ic"><use href="#i-close"/></svg></button>
+          </div>
+          <nav class="outline-list" id="backlinksList"></nav>
+        </aside>
       </div>
 
       <footer class="statusbar" id="statusbar">
