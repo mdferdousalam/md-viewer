@@ -220,7 +220,20 @@ async function renderMermaid() {
 // State + DOM
 // ============================================================
 
-const state = { filePath: null, savedContent: '', viewMode: 'split', theme: 'dark', zen: false, outlineOpen: false };
+// Workspace-level state (shared across tabs).
+const state = { viewMode: 'split', theme: 'dark', zen: false, outlineOpen: false };
+
+// Open documents. Only the ACTIVE tab's text lives in the CodeMirror editor;
+// switching tabs swaps content/caret/scroll in and out. Each tab tracks its
+// on-disk `savedContent` for dirty detection.
+let tabSeq = 0;
+const tabs = [];
+let activeId = null;
+let welcomeId = null; // the initial scratch tab, dropped when a real file opens
+function active() { return tabs.find((t) => t.id === activeId) || null; }
+function tabText(t) { return t.id === activeId ? editor.value : t.content; }
+function tabIsDirty(t) { return tabText(t) !== t.savedContent; }
+function anyDirty() { return tabs.some(tabIsDirty); }
 
 const $ = (id) => document.getElementById(id);
 const app = document.querySelector('.app');
@@ -254,6 +267,7 @@ const cursorPosEl = $('cursorPos');
 const outlineEl = $('outline');
 const outlineList = $('outlineList');
 const themeToggle = $('themeToggle');
+const tabStrip = $('tabstrip');
 
 // ============================================================
 // Render loop
@@ -279,7 +293,7 @@ let evtTimer;
 function emitChanged() {
   clearTimeout(evtTimer);
   evtTimer = setTimeout(() => {
-    window.api.emitEvent?.('changed', { filePath: state.filePath, dirty: isDirty() });
+    window.api.emitEvent?.('changed', { filePath: active() && active().filePath, dirty: isDirty() });
   }, 400);
 }
 
@@ -293,13 +307,14 @@ function updatePreview() {
   renderMermaid();
 }
 
-function isDirty() { return editor.value !== state.savedContent; }
+function isDirty() { const a = active(); return a ? editor.value !== a.savedContent : false; }
 
 function reportDirty() {
   const d = isDirty();
   dirtyDot.hidden = !d;
-  window.api.reportDirty(d);
-  document.title = `${d ? '• ' : ''}${baseName(state.filePath) || 'Untitled'} — Markdown Viewer`;
+  window.api.reportDirty(anyDirty()); // main confirms on close if ANY tab is dirty
+  document.title = `${d ? '• ' : ''}${baseName(active() && active().filePath) || 'Untitled'} — Markdown Viewer`;
+  renderTabs();
 }
 
 function baseName(p) { return p ? p.split(/[\\/]/).pop() : null; }
@@ -315,7 +330,7 @@ function updateStatus() {
   charCountEl.textContent = `${text.length} chars`;
   const mins = Math.max(words ? 1 : 0, Math.round(words / 200));
   readTimeEl.textContent = `${mins} min read`;
-  fileNameEl.textContent = baseName(state.filePath) || 'Untitled';
+  fileNameEl.textContent = baseName(active() && active().filePath) || 'Untitled';
   updateCursor();
 }
 
@@ -444,28 +459,102 @@ function toggleZen(force) {
 // File operations
 // ============================================================
 
-function loadContent(filePath, content) {
-  editor.value = content;
-  state.filePath = filePath;
-  state.savedContent = content;
-  window.api.setWatchedFile?.(filePath);
-  window.api.emitEvent?.('opened', { filePath });
+function makeTab(filePath, content) {
+  return { id: ++tabSeq, filePath: filePath || null, content, savedContent: content, scrollTop: 0, selStart: 0, selEnd: 0 };
+}
+
+// Open content in a new tab, or focus the existing tab for that path.
+function openInNewTab(filePath, content) {
+  if (filePath) {
+    const existing = tabs.find((t) => t.filePath === filePath);
+    if (existing) { activateTab(existing.id, true); return; }
+  }
+  const tab = makeTab(filePath, content);
+  tabs.push(tab);
+  activateTab(tab.id, true);
+  // Once a real file is opened, drop the initial untouched welcome scratch tab.
+  if (filePath && welcomeId != null) {
+    const w = tabs.find((t) => t.id === welcomeId);
+    if (w && w.id !== tab.id && w.content === WELCOME) { tabs.splice(tabs.indexOf(w), 1); renderTabs(); }
+    welcomeId = null;
+  }
+}
+
+// Make `id` active: stash the outgoing tab's live text/caret/scroll, load target.
+function activateTab(id, force) {
+  if (id === activeId && !force) return;
+  const cur = active();
+  if (cur && cur.id !== id) {
+    cur.content = editor.value;
+    cur.scrollTop = editor.scrollTop;
+    cur.selStart = editor.selectionStart;
+    cur.selEnd = editor.selectionEnd;
+  }
+  activeId = id;
+  const t = active();
+  if (!t) return;
+  editor.value = t.content;
+  const len = editor.value.length;
+  editor.setSelectionRange(Math.min(t.selStart || 0, len), Math.min(t.selEnd || 0, len));
+  editor.scrollTop = t.scrollTop || 0;
+  window.api.setWatchedFile?.(t.filePath);
+  window.api.emitEvent?.('opened', { filePath: t.filePath });
+  renderTabs();
   scheduleRender();
   editor.focus();
-  editor.setSelectionRange(0, 0);
-  editor.scrollTop = 0;
+}
+
+async function closeTab(id) {
+  const t = tabs.find((x) => x.id === id);
+  if (!t) return;
+  const idx = tabs.indexOf(t);
+  if (tabIsDirty(t)) {
+    if (id !== activeId) activateTab(id, true);
+    if (!(await maybeConfirmDiscard())) return;
+  }
+  tabs.splice(idx, 1);
+  if (!tabs.length) { openInNewTab(null, ''); return; }
+  if (id === activeId) activateTab(tabs[Math.max(0, idx - 1)].id, true);
+  else renderTabs();
+}
+
+// Render the tab strip (hidden when a single tab is open, for a clean look).
+function renderTabs() {
+  if (!tabStrip) return;
+  tabStrip.hidden = tabs.length <= 1;
+  tabStrip.innerHTML = '';
+  tabs.forEach((t) => {
+    const el = document.createElement('div');
+    el.className = 'tab' + (t.id === activeId ? ' active' : '');
+    const name = baseName(t.filePath) || 'Untitled';
+    el.innerHTML = `<span class="tab-name"></span>${tabIsDirty(t) ? '<span class="tab-dirty">●</span>' : ''}<button class="tab-close" tabindex="-1" aria-label="Close tab"><svg class="ic"><use href="#i-close"/></svg></button>`;
+    el.querySelector('.tab-name').textContent = name;
+    el.title = t.filePath || name;
+    el.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.tab-close')) { e.preventDefault(); closeTab(t.id); }
+      else activateTab(t.id);
+    });
+    tabStrip.appendChild(el);
+  });
+  const add = document.createElement('button');
+  add.className = 'tab-new';
+  add.setAttribute('aria-label', 'New tab (⌘T)');
+  add.textContent = '+';
+  add.addEventListener('click', doNew);
+  tabStrip.appendChild(add);
 }
 
 // A program/agent (or another editor) rewrote the open file on disk.
 async function onExternalChange({ filePath, content }) {
-  if (filePath !== state.filePath) return;      // stale watcher for a closed file
-  if (content === state.savedContent) return;   // nothing new (incl. our own save)
+  const a = active();
+  if (!a || filePath !== a.filePath) return;    // stale watcher / not the active file
+  if (content === a.savedContent) return;        // nothing new (incl. our own save)
   if (!isDirty()) {
     // Reload silently, keeping the caret/scroll roughly where they were.
     const pos = Math.min(editor.selectionStart, content.length);
     const top = editor.scrollTop;
     editor.value = content;
-    state.savedContent = content;
+    a.savedContent = content;
     scheduleRender();
     editor.setSelectionRange(pos, pos);
     editor.scrollTop = top;
@@ -475,7 +564,7 @@ async function onExternalChange({ filePath, content }) {
   // Unsaved edits + disk changed: let the user decide, never clobber silently.
   if (await window.api.confirmReload()) {
     editor.value = content;
-    state.savedContent = content;
+    a.savedContent = content;
     scheduleRender();
     flash('Reloaded from disk');
   }
@@ -489,14 +578,17 @@ async function maybeConfirmDiscard() {
   return true;
 }
 
-async function doNew() { if (await maybeConfirmDiscard()) loadContent(null, ''); }
-async function doOpen() { if (await maybeConfirmDiscard()) await window.api.openDialog(); }
+// Opening now creates a new tab, so there's nothing to discard first.
+async function doNew() { openInNewTab(null, ''); }
+async function doOpen() { await window.api.openDialog(); }
 
 async function doSave(forceDialog = false) {
-  const res = await window.api.save({ filePath: state.filePath, content: editor.value, forceDialog });
+  const a = active();
+  if (!a) return false;
+  const res = await window.api.save({ filePath: a.filePath, content: editor.value, forceDialog });
   if (!res || res.error) return false;
-  state.filePath = res.filePath;
-  state.savedContent = editor.value;
+  a.filePath = res.filePath;
+  a.savedContent = editor.value;
   window.api.setWatchedFile?.(res.filePath);
   window.api.emitEvent?.('saved', { filePath: res.filePath });
   scheduleRender();
@@ -506,7 +598,7 @@ async function doSave(forceDialog = false) {
 async function doExportHtml() {
   await window.api.exportHtml({
     html: buildStandaloneHtml(),
-    title: (baseName(state.filePath) || 'export').replace(/\.[^.]+$/, ''),
+    title: (baseName(active() && active().filePath) || 'export').replace(/\.[^.]+$/, ''),
   });
 }
 
@@ -531,7 +623,7 @@ body.markdown-body{display:block!important;max-width:840px;margin:2rem auto;padd
 // Built from the live preview DOM so rendered diagrams + math are baked in.
 // Always light-themed for readable print/PDF regardless of the app theme.
 function buildStandaloneHtml() {
-  const title = (baseName(state.filePath) || 'Markdown Export').replace(/\.[^.]+$/, '');
+  const title = (baseName(active() && active().filePath) || 'Markdown Export').replace(/\.[^.]+$/, '');
   return `<!DOCTYPE html><html data-theme="light"><head><meta charset="UTF-8"><title>${escapeHtml(title)}</title>
 <style>${collectCss()}\n${EXPORT_RESET}</style></head>
 <body class="markdown-body">${preview.innerHTML}</body></html>`;
@@ -545,7 +637,7 @@ async function copyHtml() {
 async function exportPdf() {
   const res = await window.api.exportPdf({
     html: buildStandaloneHtml(),
-    title: (baseName(state.filePath) || 'export').replace(/\.[^.]+$/, ''),
+    title: (baseName(active() && active().filePath) || 'export').replace(/\.[^.]+$/, ''),
   });
   if (res && res.error) flash('PDF export failed');
   else if (res) flash('PDF exported');
@@ -640,13 +732,14 @@ const API_OPS = {
   },
 
   getDocument: async () => ({
-    filePath: state.filePath,
+    filePath: active() && active().filePath,
     content: editor.value,
     outline: outlineFromSource(),
     wordCount: wordCount(editor.value),
     dirty: isDirty(),
     viewMode: state.viewMode,
     theme: state.theme,
+    tabs: tabs.map((t) => ({ filePath: t.filePath, active: t.id === activeId })),
   }),
 
   setContent: async ({ content }) => {
@@ -695,12 +788,12 @@ const API_OPS = {
   },
 
   save: async ({ path } = {}) => {
-    const target = path || state.filePath;
+    const a = active();
+    const target = path || (a && a.filePath);
     if (!target) throw new Error('no file path; provide { "path": ... }');
     const res = await window.api.save({ filePath: target, content: editor.value, forceDialog: false });
     if (!res || res.error) throw new Error(res && res.error ? res.error : 'save failed');
-    state.filePath = res.filePath;
-    state.savedContent = editor.value;
+    if (a) { a.filePath = res.filePath; a.savedContent = editor.value; }
     window.api.setWatchedFile?.(res.filePath);
     scheduleRender();
     return { filePath: res.filePath };
@@ -839,12 +932,11 @@ window.addEventListener('drop', async (e) => {
   if (!file) return;
   if (file.type && file.type.startsWith('image/')) { await insertImageFile(file); return; }
   const fp = window.electronFilePath?.(file) || file.path;
-  if (!(await maybeConfirmDiscard())) return;
   if (fp) {
     const res = await window.api.readFile(fp);
-    if (res && !res.error) loadContent(res.filePath, res.content);
+    if (res && !res.error) openInNewTab(res.filePath, res.content);
   } else {
-    loadContent(null, await file.text());
+    openInNewTab(null, await file.text());
   }
 });
 
@@ -1038,7 +1130,7 @@ paletteOverlay.addEventListener('mousedown', (e) => { if (e.target === paletteOv
 
 const helpOverlay = $('helpOverlay');
 const SHORTCUTS = [
-  ['New file', '⌘N'], ['Open', '⌘O'], ['Save', '⌘S'], ['Save As', '⌘⇧S'],
+  ['New file / tab', '⌘N / ⌘T'], ['Open', '⌘O'], ['Save', '⌘S'], ['Save As', '⌘⇧S'],
   ['Bold', '⌘B'], ['Italic', '⌘I'], ['Insert link', '⌘K'],
   ['Find & replace', '⌘F'], ['Command palette', '⌘⇧P'],
   ['Editor / Split / Preview / Live', '⌘1 / ⌘2 / ⌘3 / ⌘4'], ['Toggle outline', '⌘\\'],
@@ -1101,7 +1193,7 @@ document.querySelectorAll('[data-action="help"]').forEach((b) => b.addEventListe
 // default text paste (we preventDefault only for the cases we handle).
 editor.view.contentDOM.addEventListener('paste', onEditorPaste, true);
 
-window.api.onFileOpened(({ filePath, content }) => loadContent(filePath, content));
+window.api.onFileOpened(({ filePath, content }) => openInNewTab(filePath, content));
 window.api.onExternalChange(onExternalChange);
 window.api.onMenuNew(doNew);
 window.api.onMenuSave(() => doSave(false));
@@ -1129,7 +1221,8 @@ window.addEventListener('keydown', (e) => {
   }
   if (!mod) return;
   const k = e.key.toLowerCase();
-  if (k === 's') { e.preventDefault(); doSave(e.shiftKey); }
+  if (k === 't') { e.preventDefault(); doNew(); }
+  else if (k === 's') { e.preventDefault(); doSave(e.shiftKey); }
   else if (k === 'f' && e.shiftKey) { e.preventDefault(); toggleZen(); }
   else if (k === 'f') { e.preventDefault(); openFind(); }
   else if (k === 'p' && e.shiftKey) { e.preventDefault(); openPalette(); }
@@ -1145,7 +1238,7 @@ function isTyping(el) {
     || el.isContentEditable || (el.closest && el.closest('.cm-editor'))));
 }
 
-window.addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', (e) => { if (anyDirty()) { e.preventDefault(); e.returnValue = ''; } });
 
 // ============================================================
 // Content constants
@@ -1216,7 +1309,7 @@ Happy writing! ✍️
   document.querySelectorAll('[data-tip]').forEach((el) => {
     if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', el.getAttribute('data-tip'));
   });
-  loadContent(null, WELCOME);
-  state.savedContent = '';
+  openInNewTab(null, WELCOME);
+  if (active()) { active().savedContent = ''; welcomeId = active().id; } // welcome = scratch, droppable
   reportDirty();
 })();

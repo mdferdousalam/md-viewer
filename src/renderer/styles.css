@@ -230,6 +230,42 @@ html, body {
 @keyframes tipIn { from { opacity: 0; transform: translateX(-50%) translateY(-3px); } }
 
 /* ============================================================
+   Tab strip
+   ============================================================ */
+.tabstrip {
+  display: flex; align-items: stretch; gap: 2px;
+  height: 34px; padding: 4px 6px 0; background: var(--surface);
+  border-bottom: 1px solid var(--border); overflow-x: auto;
+  -webkit-app-region: no-drag; flex: none;
+}
+.tabstrip::-webkit-scrollbar { height: 0; }
+.tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 6px 0 12px; max-width: 200px; min-width: 92px;
+  font-size: 12.5px; color: var(--text-2); background: transparent;
+  border: 1px solid transparent; border-bottom: none;
+  border-radius: 7px 7px 0 0; cursor: default; white-space: nowrap;
+  transition: background var(--transition), color var(--transition);
+}
+.tab:hover { background: var(--surface-hover); color: var(--text); }
+.tab.active { background: var(--bg); color: var(--text); border-color: var(--border); }
+.tab-name { overflow: hidden; text-overflow: ellipsis; }
+.tab-dirty { color: var(--accent); font-size: 9px; }
+.tab-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border: none; background: transparent;
+  color: var(--text-dim); border-radius: 4px; cursor: pointer; flex: none;
+}
+.tab-close:hover { background: var(--surface-2); color: var(--text); }
+.tab-close .ic { width: 12px; height: 12px; }
+.tab-new {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; border: none; background: transparent; color: var(--text-dim);
+  font-size: 19px; line-height: 1; cursor: pointer; flex: none; border-radius: 6px;
+}
+.tab-new:hover { color: var(--text); background: var(--surface-hover); }
+
+/* ============================================================
    Workspace
    ============================================================ */
 .workspace { flex: 1; display: flex; min-height: 0; }
