@@ -304,6 +304,10 @@ const outlineEl = $('outline');
 const outlineList = $('outlineList');
 const backlinksEl = $('backlinks');
 const backlinksList = $('backlinksList');
+const graphEl = $('graph');
+const graphCanvas = $('graphCanvas');
+const graphMeta = $('graphMeta');
+const graphEmpty = $('graphEmpty');
 const themeToggle = $('themeToggle');
 const tabStrip = $('tabstrip');
 const fileTreeEl = $('fileTree');
@@ -464,6 +468,172 @@ async function refreshBacklinks() {
     item.addEventListener('click', () => openWorkspaceFile(l.path));
     backlinksList.appendChild(item);
   });
+}
+
+// ---- Knowledge graph -----------------------------------------------------
+// A dependency-free force-directed map of the workspace's [[wiki links]],
+// drawn on a canvas. Nodes are notes (sized by link degree); edges are links.
+let graphOpen = false;
+let graphSim = null; // { nodes, edges, raf, alpha, drag, hover, dpr }
+
+function isGraphOpen() { return graphEl && !graphEl.hidden; }
+
+async function openGraph() {
+  if (!workspaceRoot) { openFolder(); return; }
+  const res = await window.api.linkGraph?.(workspaceRoot);
+  const nodes = (res && res.nodes) || [];
+  const edges = (res && res.edges) || [];
+  graphEl.hidden = false;
+  graphOpen = true;
+  graphMeta.textContent = `${nodes.length} notes · ${edges.length} links`;
+  graphEmpty.hidden = edges.length > 0 || nodes.length > 1;
+  const activePath = active() && active().filePath;
+  // Seed positions on a circle around the centre so the layout unfolds smoothly.
+  const cx = graphCanvas.clientWidth / 2, cy = graphCanvas.clientHeight / 2;
+  const R = Math.min(cx, cy) * 0.6 || 200;
+  nodes.forEach((n, i) => {
+    const a = (i / Math.max(1, nodes.length)) * Math.PI * 2;
+    n.x = cx + Math.cos(a) * R * (0.6 + 0.4 * Math.random());
+    n.y = cy + Math.sin(a) * R * (0.6 + 0.4 * Math.random());
+    n.vx = 0; n.vy = 0;
+    n.isActive = n.path === activePath;
+  });
+  graphSim = { nodes, edges, raf: 0, alpha: 1, drag: null, hover: null, dpr: 1 };
+  sizeGraphCanvas();
+  stepGraph();
+}
+
+function closeGraph() {
+  if (graphSim && graphSim.raf) cancelAnimationFrame(graphSim.raf);
+  graphSim = null;
+  graphOpen = false;
+  graphEl.hidden = true;
+  editor.focus();
+}
+
+function sizeGraphCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = graphCanvas.clientWidth, h = graphCanvas.clientHeight;
+  graphCanvas.width = Math.round(w * dpr);
+  graphCanvas.height = Math.round(h * dpr);
+  if (graphSim) graphSim.dpr = dpr;
+}
+
+// One simulation + draw tick. Repulsion is O(n²) — fine for typical vaults; the
+// node count is capped by the main-side walk.
+function stepGraph() {
+  if (!graphSim) return;
+  const { nodes, edges } = graphSim;
+  const w = graphCanvas.clientWidth, h = graphCanvas.clientHeight;
+  const cx = w / 2, cy = h / 2;
+  const alpha = graphSim.alpha;
+
+  if (alpha > 0.02) {
+    // Repulsion between every pair.
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j];
+        let dx = a.x - b.x, dy = a.y - b.y;
+        let d2 = dx * dx + dy * dy;
+        if (d2 < 1) { d2 = 1; dx = (Math.random() - 0.5); dy = (Math.random() - 0.5); }
+        const force = 2200 / d2;
+        const d = Math.sqrt(d2);
+        const fx = (dx / d) * force, fy = (dy / d) * force;
+        a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+      }
+      // Gravity toward centre keeps disconnected notes on-screen.
+      a.vx += (cx - a.x) * 0.006;
+      a.vy += (cy - a.y) * 0.006;
+    }
+    // Spring attraction along edges.
+    for (const e of edges) {
+      const a = nodes[e.source], b = nodes[e.target];
+      if (!a || !b) continue;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.sqrt(dx * dx + dy * dy) || 1;
+      const k = (d - 90) * 0.02;
+      const fx = (dx / d) * k, fy = (dy / d) * k;
+      a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+    }
+    // Integrate with damping.
+    for (const n of nodes) {
+      if (graphSim.drag === n) continue;
+      n.vx *= 0.82; n.vy *= 0.82;
+      n.x += n.vx * alpha; n.y += n.vy * alpha;
+    }
+    graphSim.alpha *= 0.985;
+  }
+
+  drawGraph();
+  graphSim.raf = requestAnimationFrame(stepGraph);
+}
+
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+function nodeRadius(n) { return 4 + Math.min(9, n.degree * 1.6); }
+
+function drawGraph() {
+  const ctx = graphCanvas.getContext('2d');
+  const { nodes, edges, dpr, hover } = graphSim;
+  const w = graphCanvas.clientWidth, h = graphCanvas.clientHeight;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const accent = cssVar('--accent') || '#7c9cff';
+  const border = cssVar('--border') || '#333';
+  const text = cssVar('--text-2') || '#ccc';
+  const dim = cssVar('--text-dim') || '#888';
+
+  // Neighbours of the hovered node get emphasised.
+  const nb = new Set();
+  if (hover) for (const e of edges) {
+    if (nodes[e.source] === hover) nb.add(nodes[e.target]);
+    if (nodes[e.target] === hover) nb.add(nodes[e.source]);
+  }
+
+  // Edges.
+  ctx.lineWidth = 1;
+  for (const e of edges) {
+    const a = nodes[e.source], b = nodes[e.target];
+    if (!a || !b) continue;
+    const lit = hover && (a === hover || b === hover);
+    ctx.strokeStyle = lit ? accent : border;
+    ctx.globalAlpha = hover ? (lit ? 0.9 : 0.15) : 0.5;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  // Nodes + labels.
+  ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const n of nodes) {
+    const r = nodeRadius(n);
+    const lit = !hover || n === hover || nb.has(n);
+    ctx.globalAlpha = lit ? 1 : 0.25;
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = (n.isActive || n === hover) ? accent : (n.degree ? accent : dim);
+    if (!n.isActive && n !== hover && !n.degree) ctx.fillStyle = dim;
+    ctx.fill();
+    if (n === hover || n.isActive) { ctx.lineWidth = 2; ctx.strokeStyle = accent; ctx.stroke(); }
+    // Label (skip tiny leaf labels unless hovered/hub, to reduce clutter).
+    if (n.degree > 0 || n === hover || n.isActive || nodes.length <= 40) {
+      ctx.fillStyle = (n === hover || n.isActive) ? text : dim;
+      ctx.fillText(n.name, n.x, n.y + r + 3);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function graphNodeAt(px, py) {
+  if (!graphSim) return null;
+  const { nodes } = graphSim;
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const n = nodes[i];
+    const r = nodeRadius(n) + 6;
+    if ((px - n.x) ** 2 + (py - n.y) ** 2 <= r * r) return n;
+  }
+  return null;
 }
 
 // ============================================================
@@ -1151,7 +1321,7 @@ const API_OPS = {
     return { ok: true };
   },
 
-  setView: async ({ mode, theme, outline, zen, present, slide, backlinks } = {}) => {
+  setView: async ({ mode, theme, outline, zen, present, slide, backlinks, graph } = {}) => {
     if (mode) setViewMode(mode);
     if (theme) setTheme(theme);
     if (outline !== undefined) toggleOutline(!!outline);
@@ -1160,9 +1330,12 @@ const API_OPS = {
     if (present === true) startPresentation();
     else if (present === false) endPresentation();
     if (typeof slide === 'number' && isPresenting()) showSlide(slide);
+    if (graph === true) await openGraph();
+    else if (graph === false) closeGraph();
     return {
       ok: true, viewMode: state.viewMode, theme: state.theme,
       presenting: isPresenting(), slide: isPresenting() ? slideIndex : null, slideCount: isPresenting() ? slides.length : 0,
+      graph: isGraphOpen(),
     };
   },
 
@@ -1465,6 +1638,7 @@ const COMMANDS = [
   { id: 'find', label: 'Find & Replace', key: '⌘F', icon: 'i-search', run: openFind },
   { id: 'outline', label: 'Toggle Outline', icon: 'i-outline', run: () => toggleOutline() },
   { id: 'backlinks', label: 'Toggle Backlinks', icon: 'i-link', run: () => toggleBacklinks() },
+  { id: 'graph', label: 'Open Knowledge Graph', key: '⌘⇧G', icon: 'i-link', run: openGraph },
   { id: 've', label: 'View: Editor only', key: '⌘1', icon: 'i-edit', run: () => setViewMode('editor') },
   { id: 'vs', label: 'View: Split', key: '⌘2', icon: 'i-split', run: () => setViewMode('split') },
   { id: 'vp', label: 'View: Preview only', key: '⌘3', icon: 'i-eye', run: () => setViewMode('preview') },
@@ -1597,7 +1771,7 @@ const SHORTCUTS = [
   ['Editor / Split / Preview / Live', '⌘1 / ⌘2 / ⌘3 / ⌘4'], ['Toggle outline', '⌘\\'],
   ['Focus mode', '⌘⇧F'], ['Cycle theme', '⌘⇧L'],
   ['Start presentation', '⌘⇧⏎'], ['Slides: next / prev / exit', '→ / ← / Esc'],
-  ['Shortcuts', '?'],
+  ['Knowledge graph', '⌘⇧G'], ['Shortcuts', '?'],
 ];
 function buildHelp() {
   $('helpGrid').innerHTML = SHORTCUTS.map(([l, k]) =>
@@ -1656,6 +1830,36 @@ document.querySelectorAll('[data-action="prefs-close"]').forEach((b) => b.addEve
 $('slidePrev').addEventListener('click', prevSlide);
 $('slideNext').addEventListener('click', nextSlide);
 $('slideExit').addEventListener('click', endPresentation);
+
+// Knowledge graph: hover to highlight, drag to reposition, click to open a note.
+$('graphExit').addEventListener('click', closeGraph);
+graphCanvas.addEventListener('mousemove', (e) => {
+  if (!graphSim) return;
+  const rect = graphCanvas.getBoundingClientRect();
+  const px = e.clientX - rect.left, py = e.clientY - rect.top;
+  if (graphSim.drag) {
+    graphSim.drag.x = px; graphSim.drag.y = py; graphSim.drag.vx = 0; graphSim.drag.vy = 0;
+    graphSim.alpha = Math.max(graphSim.alpha, 0.3); // reheat so neighbours settle
+  } else {
+    graphSim.hover = graphNodeAt(px, py);
+    graphCanvas.style.cursor = graphSim.hover ? 'pointer' : 'grab';
+  }
+});
+graphCanvas.addEventListener('mousedown', (e) => {
+  if (!graphSim) return;
+  const rect = graphCanvas.getBoundingClientRect();
+  const n = graphNodeAt(e.clientX - rect.left, e.clientY - rect.top);
+  if (n) { graphSim.drag = n; graphSim.moved = false; }
+});
+window.addEventListener('mousemove', () => { if (graphSim && graphSim.drag) graphSim.moved = true; });
+window.addEventListener('mouseup', () => {
+  if (!graphSim || !graphSim.drag) return;
+  const n = graphSim.drag; graphSim.drag = null;
+  // A click (no meaningful drag) opens the note.
+  if (!graphSim.moved && n.path) { closeGraph(); openWorkspaceFile(n.path); }
+  graphSim.moved = false;
+});
+window.addEventListener('resize', () => { if (isGraphOpen()) sizeGraphCanvas(); });
 
 // ============================================================
 // Toast
@@ -1750,6 +1954,7 @@ window.addEventListener('keydown', (e) => {
   // ? opens help when not typing
   if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); toggleHelp(true); return; }
   if (e.key === 'Escape') {
+    if (isGraphOpen()) return closeGraph();
     if (!prefsOverlay.hidden) return closePrefs();
     if (!quickOpenOverlay.hidden) return closeQuickOpen();
     if (!paletteOverlay.hidden) return closePalette();
@@ -1767,6 +1972,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'p' && e.shiftKey) { e.preventDefault(); openPalette(); }
   else if (k === 'p') { e.preventDefault(); openQuickOpen(); }
   else if (k === 'l' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
+  else if (k === 'g' && e.shiftKey) { e.preventDefault(); if (isGraphOpen()) closeGraph(); else openGraph(); }
   else if (k === '\\') { e.preventDefault(); toggleOutline(); }
   else if (k === '1') { e.preventDefault(); setViewMode('editor'); }
   else if (k === '2') { e.preventDefault(); setViewMode('split'); }

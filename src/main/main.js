@@ -629,6 +629,75 @@ ipcMain.handle('fs:backlinks', (_e, { root, targetPath } = {}) => {
   }
 });
 
+// Build the workspace link graph: every markdown note is a node, and each
+// resolved `[[wiki link]]` is a directed edge. Resolution mirrors the renderer
+// (by filename stem, then workspace-relative path, case-insensitively).
+ipcMain.handle('fs:link-graph', (_e, { root } = {}) => {
+  try {
+    if (!root) return { nodes: [], edges: [] };
+    const files = [];
+    const walk = (dir, depth) => {
+      if (depth > 8 || files.length >= 3000) return;
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+      for (const ent of entries) {
+        if (ent.name.startsWith('.') || SKIP_DIR.has(ent.name)) continue;
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) { walk(full, depth + 1); continue; }
+        if (MD_RE.test(ent.name)) {
+          const rel = path.relative(root, full).split(path.sep).join('/');
+          files.push({ path: full, relPath: rel, name: ent.name, stem: ent.name.replace(MD_RE, '') });
+          if (files.length >= 3000) return;
+        }
+      }
+    };
+    walk(root, 0);
+
+    // Lookup tables for resolving a link target to a file index.
+    const byStem = new Map();      // lower stem -> index (first wins)
+    const byRel = new Map();       // lower rel-without-ext -> index
+    files.forEach((f, i) => {
+      const relNoExt = f.relPath.replace(MD_RE, '').toLowerCase();
+      if (!byRel.has(relNoExt)) byRel.set(relNoExt, i);
+      const s = f.stem.toLowerCase();
+      if (!byStem.has(s)) byStem.set(s, i);
+    });
+    const resolve = (target) => {
+      const clean = String(target).replace(/#.*$/, '').trim().split(/[\\/]/).join('/').toLowerCase();
+      if (!clean) return -1;
+      if (byRel.has(clean)) return byRel.get(clean);
+      if (byStem.has(clean)) return byStem.get(clean);
+      const base = clean.replace(/^.*\//, '');
+      return byStem.has(base) ? byStem.get(base) : -1;
+    };
+
+    const edgeSet = new Set();
+    const edges = [];
+    const linkRe = /\[\[([^\]\n|#]+)(?:#[^\]\n|]*)?(?:\|[^\]\n]+)?\]\]/g;
+    files.forEach((f, si) => {
+      let text;
+      try { text = fs.readFileSync(f.path, 'utf8'); } catch (_) { return; }
+      let m;
+      while ((m = linkRe.exec(text))) {
+        const ti = resolve(m[1]);
+        if (ti < 0 || ti === si) continue;
+        const key = si + '>' + ti;
+        if (edgeSet.has(key)) continue;
+        edgeSet.add(key);
+        edges.push({ source: si, target: ti });
+      }
+    });
+
+    // Node degree (in + out) so the view can size hubs.
+    const degree = files.map(() => 0);
+    edges.forEach((e) => { degree[e.source]++; degree[e.target]++; });
+    const nodes = files.map((f, i) => ({ id: i, name: f.stem, relPath: f.relPath, path: f.path, degree: degree[i] }));
+    return { nodes, edges };
+  } catch (err) {
+    return { error: err.message, nodes: [], edges: [] };
+  }
+});
+
 // Watch the workspace root for structural changes so the tree can refresh.
 // `recursive` is supported on macOS/Windows only; on Linux we skip auto-watch.
 function watchFolder(win, root) {
