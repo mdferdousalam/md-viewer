@@ -729,11 +729,12 @@ window.addEventListener('mouseup', () => {
   dragging = false; divider.classList.remove('dragging'); document.body.style.cursor = '';
 });
 
-// Drag & drop to open
+// Drag & drop: image files embed into the document; markdown files open.
 ['dragover', 'drop'].forEach((ev) => window.addEventListener(ev, (e) => e.preventDefault()));
 window.addEventListener('drop', async (e) => {
   const file = e.dataTransfer?.files?.[0];
   if (!file) return;
+  if (file.type && file.type.startsWith('image/')) { await insertImageFile(file); return; }
   const fp = window.electronFilePath?.(file) || file.path;
   if (!(await maybeConfirmDiscard())) return;
   if (fp) {
@@ -743,6 +744,45 @@ window.addEventListener('drop', async (e) => {
     loadContent(null, await file.text());
   }
 });
+
+// Embed an image file as a data URI so it renders in the preview and travels
+// with the document (works for unsaved buffers and HTML/PDF export alike).
+function insertImageFile(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const alt = (file.name || 'image').replace(/\.[^.]+$/, '');
+      const s = editor.selectionStart;
+      editor.setRangeText(`![${alt}](${reader.result})`, s, editor.selectionEnd, 'end');
+      scheduleRender();
+      flash('Image embedded');
+      resolve();
+    };
+    reader.onerror = () => { flash('Could not read image'); resolve(); };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Clipboard: pasted images embed as data URIs; a bare URL pasted over a
+// selection becomes a Markdown link. Anything else is a normal paste.
+async function onEditorPaste(e) {
+  const items = e.clipboardData ? e.clipboardData.items : null;
+  if (items) {
+    for (const it of items) {
+      if (it.type && it.type.startsWith('image/')) {
+        const file = it.getAsFile();
+        if (file) { e.preventDefault(); await insertImageFile(file); return; }
+      }
+    }
+  }
+  const text = ((e.clipboardData && e.clipboardData.getData('text/plain')) || '').trim();
+  if (/^https?:\/\/\S+$/.test(text) && editor.selectionEnd > editor.selectionStart) {
+    e.preventDefault();
+    const s = editor.selectionStart, en = editor.selectionEnd;
+    editor.setRangeText(`[${editor.value.slice(s, en)}](${text})`, s, en, 'end');
+    scheduleRender();
+  }
+}
 
 // ============================================================
 // Find & replace
@@ -953,6 +993,9 @@ document.querySelectorAll('[data-action="help"]').forEach((b) => b.addEventListe
 
 // Editor input / selection changes are delivered via the facade's
 // onDocChange (scheduleRender) and onSelectionChange (updateCursor) callbacks.
+// Paste is handled in capture phase so image/URL pastes win over CodeMirror's
+// default text paste (we preventDefault only for the cases we handle).
+editor.view.contentDOM.addEventListener('paste', onEditorPaste, true);
 
 window.api.onFileOpened(({ filePath, content }) => loadContent(filePath, content));
 window.api.onExternalChange(onExternalChange);
