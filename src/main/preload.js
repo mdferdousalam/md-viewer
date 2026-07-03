@@ -27,8 +27,8 @@ contextBridge.exposeInMainWorld('api', {
   confirmDiscard: () => ipcRenderer.invoke('dialog:confirm-discard'),
   confirmReload: () => ipcRenderer.invoke('dialog:confirm-reload'),
   reportDirty: (isDirty) => ipcRenderer.send('doc:dirty-state', isDirty),
-  // Tell main which file to watch for external changes (null = stop watching).
-  setWatchedFile: (filePath) => ipcRenderer.send('doc:watch', filePath),
+  // Tell main the full set of open files to watch for external changes (one per tab).
+  setWatchedPaths: (paths) => ipcRenderer.send('doc:set-watched-paths', paths),
 
   // Generic request bridge: main asks the renderer to run an op and awaits the
   // result. Renderer subscribes with onApiRequest and replies via sendApiResponse.

@@ -231,6 +231,8 @@ const tabs = [];
 let activeId = null;
 let welcomeId = null; // the initial scratch tab, dropped when a real file opens
 function active() { return tabs.find((t) => t.id === activeId) || null; }
+// Tell main the full set of open files to watch for external changes.
+function updateWatched() { window.api.setWatchedPaths?.(tabs.map((t) => t.filePath).filter(Boolean)); }
 function tabText(t) { return t.id === activeId ? editor.value : t.content; }
 function tabIsDirty(t) { return tabText(t) !== t.savedContent; }
 function anyDirty() { return tabs.some(tabIsDirty); }
@@ -497,7 +499,7 @@ function activateTab(id, force) {
   const len = editor.value.length;
   editor.setSelectionRange(Math.min(t.selStart || 0, len), Math.min(t.selEnd || 0, len));
   editor.scrollTop = t.scrollTop || 0;
-  window.api.setWatchedFile?.(t.filePath);
+  updateWatched();
   window.api.emitEvent?.('opened', { filePath: t.filePath });
   renderTabs();
   scheduleRender();
@@ -513,6 +515,7 @@ async function closeTab(id) {
     if (!(await maybeConfirmDiscard())) return;
   }
   tabs.splice(idx, 1);
+  updateWatched();
   if (!tabs.length) { openInNewTab(null, ''); return; }
   if (id === activeId) activateTab(tabs[Math.max(0, idx - 1)].id, true);
   else renderTabs();
@@ -546,15 +549,24 @@ function renderTabs() {
 
 // A program/agent (or another editor) rewrote the open file on disk.
 async function onExternalChange({ filePath, content }) {
-  const a = active();
-  if (!a || filePath !== a.filePath) return;    // stale watcher / not the active file
-  if (content === a.savedContent) return;        // nothing new (incl. our own save)
+  const tab = tabs.find((t) => t.filePath === filePath);
+  if (!tab) return;                          // stale watcher for a closed file
+  if (content === tab.savedContent) return;  // nothing new (incl. our own save)
+
+  // Background tab: silently update it if it has no unsaved edits; otherwise
+  // leave it — the user resolves the conflict when they focus/save it.
+  if (tab.id !== activeId) {
+    if (tab.content === tab.savedContent) { tab.content = content; tab.savedContent = content; renderTabs(); }
+    return;
+  }
+
+  // Active tab.
   if (!isDirty()) {
     // Reload silently, keeping the caret/scroll roughly where they were.
     const pos = Math.min(editor.selectionStart, content.length);
     const top = editor.scrollTop;
     editor.value = content;
-    a.savedContent = content;
+    tab.savedContent = content;
     scheduleRender();
     editor.setSelectionRange(pos, pos);
     editor.scrollTop = top;
@@ -564,7 +576,7 @@ async function onExternalChange({ filePath, content }) {
   // Unsaved edits + disk changed: let the user decide, never clobber silently.
   if (await window.api.confirmReload()) {
     editor.value = content;
-    a.savedContent = content;
+    tab.savedContent = content;
     scheduleRender();
     flash('Reloaded from disk');
   }
@@ -589,7 +601,7 @@ async function doSave(forceDialog = false) {
   if (!res || res.error) return false;
   a.filePath = res.filePath;
   a.savedContent = editor.value;
-  window.api.setWatchedFile?.(res.filePath);
+  updateWatched();
   window.api.emitEvent?.('saved', { filePath: res.filePath });
   scheduleRender();
   return true;
@@ -794,7 +806,7 @@ const API_OPS = {
     const res = await window.api.save({ filePath: target, content: editor.value, forceDialog: false });
     if (!res || res.error) throw new Error(res && res.error ? res.error : 'save failed');
     if (a) { a.filePath = res.filePath; a.savedContent = editor.value; }
-    window.api.setWatchedFile?.(res.filePath);
+    updateWatched();
     scheduleRender();
     return { filePath: res.filePath };
   },
