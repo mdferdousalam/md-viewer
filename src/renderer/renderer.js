@@ -11,6 +11,7 @@ import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import mermaid from 'mermaid';
+import { createEditor } from './editor/cm-editor.js';
 
 // ============================================================
 // Markdown pipeline
@@ -125,7 +126,23 @@ const state = { filePath: null, savedContent: '', viewMode: 'split', theme: 'dar
 
 const $ = (id) => document.getElementById(id);
 const app = document.querySelector('.app');
-const editor = $('editor');
+// CodeMirror 6 editor behind a textarea-shaped facade (see editor/cm-editor.js).
+// The keymap/callbacks below reference functions declared later in this module;
+// they're hoisted, and only *invoked* after init, so this wiring is safe.
+const editor = createEditor({
+  parent: $('editor'),
+  doc: '',
+  dark: true,
+  placeholder: 'Start writing Markdown, or press ⌘O to open a file…',
+  onDocChange: scheduleRender,
+  onSelectionChange: updateCursor,
+  onScroll: onEditorScroll,
+  keymap: [
+    { key: 'Tab', run: () => { surround('  ', '', ''); return true; } },
+    { key: 'Shift-Tab', run: () => { outdent(); return true; } },
+    { key: 'Enter', run: () => continueList() },
+  ],
+});
 const preview = $('preview');
 const workspace = $('workspace');
 const editorPane = $('editorPane');
@@ -295,6 +312,7 @@ function setTheme(theme) {
   state.theme = theme;
   document.documentElement.setAttribute('data-theme', theme);
   themeToggle.querySelector('use').setAttribute('href', theme === 'dark' ? '#i-moon' : '#i-sun');
+  editor.reconfigureTheme(theme === 'dark');
   try { localStorage.setItem('mdviewer.theme', theme); } catch (_) {}
   initMermaid(theme);
   scheduleRender();
@@ -655,15 +673,8 @@ function applyFormat(name) { const f = FORMATTERS[name]; if (f) f(); }
 // Editor UX
 // ============================================================
 
-editor.addEventListener('keydown', (e) => {
-  if (e.key === 'Tab') {
-    e.preventDefault();
-    if (e.shiftKey) outdent(); else surround('  ', '', '');
-    return;
-  }
-  if (e.key === 'Enter' && !e.shiftKey && continueList()) e.preventDefault();
-});
-
+// Tab / Shift-Tab / Enter-list-continuation are wired as CodeMirror keymap
+// entries (see the createEditor call above); these helpers do the work.
 function outdent() {
   const s = editor.selectionStart, v = editor.value;
   const ls = v.lastIndexOf('\n', s - 1) + 1;
@@ -688,15 +699,15 @@ function continueList() {
   return true;
 }
 
-// Scroll sync
+// Scroll sync (editor → preview), invoked via the editor facade's onScroll.
 let syncing = false;
-editor.addEventListener('scroll', () => {
+function onEditorScroll() {
   if (syncing || state.viewMode !== 'split') return;
   syncing = true;
   const r = editor.scrollTop / Math.max(1, editor.scrollHeight - editor.clientHeight);
   preview.scrollTop = r * (preview.scrollHeight - preview.clientHeight);
   requestAnimationFrame(() => (syncing = false));
-});
+}
 preview.addEventListener('scroll', () => { updateOutlineActive(); });
 
 // Divider drag
@@ -770,12 +781,9 @@ function selectMatch() {
   findCount.textContent = matches.length ? `${matchIdx + 1}/${matches.length}` : '0/0';
   if (matchIdx < 0) return;
   const start = matches[matchIdx];
-  editor.focus();
+  // Move the editor selection to the match (scrolls it into view) without
+  // stealing focus from the find input, so typing/Enter keep working.
   editor.setSelectionRange(start, start + findInput.value.length);
-  // keep the selection visible
-  const before = editor.value.slice(0, start).split('\n').length;
-  editor.blur(); editor.focus();
-  editor.scrollTop = Math.max(0, (before - 5) * 24);
 }
 
 function findNext(dir = 1) {
@@ -943,9 +951,8 @@ document.querySelectorAll('[data-action="help"]').forEach((b) => b.addEventListe
   if (e.currentTarget.closest('.help-head')) toggleHelp(false);
 }));
 
-editor.addEventListener('input', scheduleRender);
-editor.addEventListener('keyup', updateCursor);
-editor.addEventListener('click', updateCursor);
+// Editor input / selection changes are delivered via the facade's
+// onDocChange (scheduleRender) and onSelectionChange (updateCursor) callbacks.
 
 window.api.onFileOpened(({ filePath, content }) => loadContent(filePath, content));
 window.api.onExternalChange(onExternalChange);
@@ -985,7 +992,10 @@ window.addEventListener('keydown', (e) => {
   else if (k === '2') { e.preventDefault(); setViewMode('split'); }
   else if (k === '3') { e.preventDefault(); setViewMode('preview'); }
 });
-function isTyping(el) { return el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT'); }
+function isTyping(el) {
+  return !!(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+    || el.isContentEditable || (el.closest && el.closest('.cm-editor'))));
+}
 
 window.addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
 

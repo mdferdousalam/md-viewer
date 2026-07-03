@@ -267,22 +267,16 @@ html, body {
 /* ============================================================
    Editor
    ============================================================ */
+/* CodeMirror 6 mounts inside #editor; most editor styling lives in the CM theme
+   (editor/cm-editor.js). These rules make the host fill the pane. */
 #editor {
   flex: 1;
-  width: 100%;
-  resize: none;
-  border: none;
-  outline: none;
-  padding: 28px 40px 60px;
-  background: transparent;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 14.5px;
-  line-height: 1.75;
-  tab-size: 2;
-  caret-color: var(--accent);
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
 }
-#editor::placeholder { color: var(--text-dim); }
+#editor .cm-editor { height: 100%; }
+#editor .cm-editor.cm-focused { outline: none; }
 
 /* Find bar */
 .find-bar {
@@ -492,18 +486,19 @@ html, body {
 .app.zen .toolbar,
 .app.zen .statusbar,
 .app.zen .outline { display: none; }
-.app.zen #editor { padding: 6vh 12vw; }
+.app.zen #editor .cm-content { padding: 6vh 12vw; }
+.app.zen #editor .cm-gutters { display: none; }
 .app.zen #preview { padding: 6vh 8vw; }
 
 /* ============================================================
    Scrollbars
    ============================================================ */
-#editor::-webkit-scrollbar, #preview::-webkit-scrollbar,
+#editor .cm-scroller::-webkit-scrollbar, #preview::-webkit-scrollbar,
 .outline-list::-webkit-scrollbar, .palette-list::-webkit-scrollbar,
 .help-modal::-webkit-scrollbar { width: 11px; height: 11px; }
-#editor::-webkit-scrollbar-thumb, #preview::-webkit-scrollbar-thumb,
+#editor .cm-scroller::-webkit-scrollbar-thumb, #preview::-webkit-scrollbar-thumb,
 .outline-list::-webkit-scrollbar-thumb, .palette-list::-webkit-scrollbar-thumb,
 .help-modal::-webkit-scrollbar-thumb {
   background: var(--scrollbar); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box;
 }
-#editor::-webkit-scrollbar-thumb:hover, #preview::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+#editor .cm-scroller::-webkit-scrollbar-thumb:hover, #preview::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
