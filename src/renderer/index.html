@@ -180,6 +180,17 @@
       </div>
     </div>
 
+    <!-- Quick open (fuzzy file switcher) -->
+    <div class="overlay" id="quickOpenOverlay" hidden>
+      <div class="palette" role="dialog" aria-label="Quick open">
+        <div class="palette-search">
+          <svg class="ic"><use href="#i-file"/></svg>
+          <input type="text" id="quickOpenInput" placeholder="Quick open by filename…" spellcheck="false" autocomplete="off" />
+        </div>
+        <ul class="palette-list" id="quickOpenList"></ul>
+      </div>
+    </div>
+
     <!-- Shortcut help -->
     <div class="overlay" id="helpOverlay" hidden>
       <div class="help-modal" role="dialog" aria-label="Keyboard shortcuts">

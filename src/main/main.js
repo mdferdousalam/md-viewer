@@ -540,6 +540,27 @@ ipcMain.handle('fs:list-dir', (_e, dirPath) => {
   }
 });
 
+// Bounded recursive list of markdown files under the root, for quick-open.
+ipcMain.handle('fs:walk-markdown', (_e, root) => {
+  const out = [];
+  const walk = (dir, depth) => {
+    if (depth > 8 || out.length >= 5000) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+    for (const ent of entries) {
+      if (ent.name.startsWith('.') || SKIP_DIR.has(ent.name)) continue;
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(full, depth + 1);
+      else if (MD_RE.test(ent.name)) {
+        out.push({ name: ent.name, path: full, relPath: path.relative(root, full) });
+        if (out.length >= 5000) return;
+      }
+    }
+  };
+  if (root) walk(root, 0);
+  return { files: out };
+});
+
 // Watch the workspace root for structural changes so the tree can refresh.
 // `recursive` is supported on macOS/Windows only; on Linux we skip auto-watch.
 function watchFolder(win, root) {
