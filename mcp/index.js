@@ -139,6 +139,7 @@ server.tool('set_view', 'Set the view mode, color theme, and panels; also contro
     zen: z.boolean().optional().describe('Toggle focus/zen mode'),
     present: z.boolean().optional().describe('Enter/exit fullscreen presentation (document split into slides on --- separators)'),
     slide: z.number().int().optional().describe('While presenting, jump to this 0-based slide index'),
+    graph: z.boolean().optional().describe('Open/close the workspace knowledge graph (force-directed map of [[wiki links]])'),
   },
   wrap((a) => jsonCall('POST', '/view', a)));
 

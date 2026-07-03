@@ -245,6 +245,17 @@
       </div>
     </div>
 
+    <!-- Knowledge graph: force-directed map of the workspace's [[wiki links]]. -->
+    <div class="graph" id="graph" hidden role="dialog" aria-label="Knowledge graph">
+      <canvas id="graphCanvas"></canvas>
+      <div class="graph-head">
+        <span class="graph-title">Graph</span>
+        <span class="graph-meta" id="graphMeta"></span>
+        <button class="slide-btn graph-exit" id="graphExit" data-tip="Close (Esc)" aria-label="Close graph"><svg class="ic"><use href="#i-close"/></svg></button>
+      </div>
+      <div class="graph-empty" id="graphEmpty" hidden>No linked notes yet — connect notes with <code>[[wiki links]]</code>.</div>
+    </div>
+
     <script src="dist/bundle.js"></script>
   </body>
 </html>

@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   walkWorkspace: (root) => ipcRenderer.invoke('fs:walk-markdown', root),
   createNote: (root, name) => ipcRenderer.invoke('fs:create-note', { root, name }),
   backlinks: (root, targetPath) => ipcRenderer.invoke('fs:backlinks', { root, targetPath }),
+  linkGraph: (root) => ipcRenderer.invoke('fs:link-graph', { root }),
   watchFolder: (root) => ipcRenderer.send('workspace:watch', root),
   confirmDiscard: () => ipcRenderer.invoke('dialog:confirm-discard'),
   confirmReload: () => ipcRenderer.invoke('dialog:confirm-reload'),
