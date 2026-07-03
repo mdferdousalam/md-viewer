@@ -6,6 +6,7 @@
 import { Marked } from 'marked';
 import { markedHighlight } from 'marked-highlight';
 import { gfmHeadingId } from 'marked-gfm-heading-id';
+import markedFootnote from 'marked-footnote';
 import DOMPurify from 'dompurify';
 import hljs from 'highlight.js/lib/common';
 import katex from 'katex';
@@ -145,6 +146,9 @@ const marked = new Marked(
   emojiExtension,
   { gfm: true, breaks: false }
 );
+// Footnotes: [^1] references + [^1]: definitions, rendered as a footnotes
+// section with back-links. Added via use() so it composes with the extensions.
+marked.use(markedFootnote());
 
 // Split a leading YAML-ish front-matter block (--- … ---) off the top and
 // render its key/value pairs as a small metadata card above the document.
