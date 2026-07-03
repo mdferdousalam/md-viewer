@@ -432,6 +432,7 @@ function setViewMode(mode) {
   workspace.className = `workspace view-${mode}`;
   document.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === mode));
   if (mode !== 'split') editorPane.style.flexBasis = '';
+  editor.setLiveMode(mode === 'live');
 }
 
 function toggleZen(force) {
@@ -979,6 +980,7 @@ const COMMANDS = [
   { id: 've', label: 'View: Editor only', key: '⌘1', icon: 'i-edit', run: () => setViewMode('editor') },
   { id: 'vs', label: 'View: Split', key: '⌘2', icon: 'i-split', run: () => setViewMode('split') },
   { id: 'vp', label: 'View: Preview only', key: '⌘3', icon: 'i-eye', run: () => setViewMode('preview') },
+  { id: 'vl', label: 'View: Live preview (Typora-style)', key: '⌘4', icon: 'i-live', run: () => setViewMode('live') },
   { id: 'zen', label: 'Toggle Focus Mode', key: '⌘⇧F', icon: 'i-zen', run: () => toggleZen() },
   { id: 'theme', label: 'Cycle Theme (Dark / Light / Sepia)', key: '⌘⇧L', icon: 'i-sun', run: cycleTheme },
   { id: 'help', label: 'Keyboard Shortcuts', key: '?', icon: 'i-help', run: () => toggleHelp(true) },
@@ -1039,7 +1041,7 @@ const SHORTCUTS = [
   ['New file', '⌘N'], ['Open', '⌘O'], ['Save', '⌘S'], ['Save As', '⌘⇧S'],
   ['Bold', '⌘B'], ['Italic', '⌘I'], ['Insert link', '⌘K'],
   ['Find & replace', '⌘F'], ['Command palette', '⌘⇧P'],
-  ['Editor / Split / Preview', '⌘1 / ⌘2 / ⌘3'], ['Toggle outline', '⌘\\'],
+  ['Editor / Split / Preview / Live', '⌘1 / ⌘2 / ⌘3 / ⌘4'], ['Toggle outline', '⌘\\'],
   ['Focus mode', '⌘⇧F'], ['Cycle theme', '⌘⇧L'], ['Shortcuts', '?'],
 ];
 function buildHelp() {
@@ -1136,6 +1138,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === '1') { e.preventDefault(); setViewMode('editor'); }
   else if (k === '2') { e.preventDefault(); setViewMode('split'); }
   else if (k === '3') { e.preventDefault(); setViewMode('preview'); }
+  else if (k === '4') { e.preventDefault(); setViewMode('live'); }
 });
 function isTyping(el) {
   return !!(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'

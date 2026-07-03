@@ -249,6 +249,14 @@ html, body {
 .workspace.view-preview .divider { display: none; }
 .workspace.view-preview .preview-pane { flex-basis: 100% !important; }
 
+/* Live preview: editor fills the pane, styled like a document (no gutters,
+   centred reading measure); inline markers are concealed off the caret line. */
+.workspace.view-live .preview-pane,
+.workspace.view-live .divider { display: none; }
+.workspace.view-live .editor-pane { flex-basis: 100% !important; }
+.workspace.view-live #editor .cm-gutters { display: none; }
+.workspace.view-live #editor .cm-content { max-width: 820px; margin: 0 auto; padding: 32px 24px 60px; }
+
 /* Outline sidebar */
 .outline {
   width: 250px;
