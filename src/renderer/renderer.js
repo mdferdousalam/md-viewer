@@ -222,6 +222,7 @@ async function renderMermaid() {
 
 // Workspace-level state (shared across tabs).
 const state = { viewMode: 'split', theme: 'dark', zen: false, outlineOpen: false };
+let autosaveEnabled = true; // persisted in the session; toggled from the palette
 
 // Open documents. Only the ACTIVE tab's text lives in the CodeMirror editor;
 // switching tabs swaps content/caret/scroll in and out. Each tab tracks its
@@ -296,6 +297,7 @@ function scheduleRender() {
 let evtTimer;
 function emitChanged() {
   pushSession(); // keep the session snapshot fresh (esp. unsaved buffers)
+  scheduleAutosave();
   clearTimeout(evtTimer);
   evtTimer = setTimeout(() => {
     window.api.emitEvent?.('changed', { filePath: active() && active().filePath, dirty: isDirty() });
@@ -488,6 +490,7 @@ function openInNewTab(filePath, content) {
 // Make `id` active: stash the outgoing tab's live text/caret/scroll, load target.
 function activateTab(id, force) {
   if (id === activeId && !force) return;
+  flushAutosave(); // persist the outgoing tab before we swap content out
   const cur = active();
   if (cur && cur.id !== id) {
     cur.content = editor.value;
@@ -565,6 +568,7 @@ function pushSession() {
       tabs: tabs.map((t) => (t.filePath ? { filePath: t.filePath } : { content: (t.content || '').slice(0, 200000) })),
       activeIndex: tabs.findIndex((t) => t.id === activeId),
       workspaceRoot,
+      settings: { autosave: autosaveEnabled },
     });
   }, 500);
 }
@@ -588,6 +592,9 @@ async function restoreSession(session) {
 }
 
 async function onSessionRestore({ session, openAfter }) {
+  if (session && session.settings && typeof session.settings.autosave === 'boolean') {
+    autosaveEnabled = session.settings.autosave;
+  }
   if (session) await restoreSession(session);
   if (session && session.workspaceRoot) setWorkspaceRoot(session.workspaceRoot);
   if (openAfter) {
@@ -727,6 +734,35 @@ async function doSave(forceDialog = false) {
   window.api.emitEvent?.('saved', { filePath: res.filePath });
   scheduleRender();
   return true;
+}
+
+// Autosave: only tabs that already have a path (never silently pops a Save
+// dialog for an untitled buffer). Because doSave sets savedContent on write,
+// the fs.watchFile echo is ignored by onExternalChange's content===saved guard.
+let autosaveTimer;
+function scheduleAutosave() {
+  if (!autosaveEnabled) return;
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    const a = active();
+    if (a && a.filePath && isDirty()) doSave(false);
+  }, 1200);
+}
+// Flush the active tab to disk immediately (blur / switching away).
+function flushAutosave() {
+  if (!autosaveEnabled) return;
+  const a = active();
+  if (a && a.filePath && editor.value !== a.savedContent) {
+    a.savedContent = editor.value; // set first so the watcher echo is a no-op
+    window.api.save({ filePath: a.filePath, content: editor.value, forceDialog: false });
+  }
+}
+
+function toggleAutosave() {
+  autosaveEnabled = !autosaveEnabled;
+  flash(autosaveEnabled ? 'Autosave on' : 'Autosave off');
+  if (autosaveEnabled) scheduleAutosave();
+  pushSession();
 }
 
 async function doExportHtml() {
@@ -1203,6 +1239,7 @@ const COMMANDS = [
   { id: 'exporthtml', label: 'Export as HTML…', icon: 'i-code', run: doExportHtml },
   { id: 'exportpdf', label: 'Export as PDF…', icon: 'i-save', run: exportPdf },
   { id: 'copyhtml', label: 'Copy as HTML', icon: 'i-code', run: copyHtml },
+  { id: 'autosave', label: 'Toggle Autosave (on/off)', icon: 'i-save', run: toggleAutosave },
   { id: 'find', label: 'Find & Replace', key: '⌘F', icon: 'i-search', run: openFind },
   { id: 'outline', label: 'Toggle Outline', icon: 'i-outline', run: () => toggleOutline() },
   { id: 've', label: 'View: Editor only', key: '⌘1', icon: 'i-edit', run: () => setViewMode('editor') },
@@ -1381,7 +1418,8 @@ function isTyping(el) {
     || el.isContentEditable || (el.closest && el.closest('.cm-editor'))));
 }
 
-window.addEventListener('beforeunload', (e) => { if (anyDirty()) { e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('blur', flushAutosave);
+window.addEventListener('beforeunload', (e) => { flushAutosave(); if (anyDirty()) { e.preventDefault(); e.returnValue = ''; } });
 
 // ============================================================
 // Content constants

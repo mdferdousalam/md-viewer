@@ -51,6 +51,22 @@ function createWindow(bounds) {
     }
   });
 
+  // Spell-check suggestions via the native context menu (one context serves all
+  // in-renderer tabs). Electron's spellchecker underlines misspellings; this
+  // offers corrections + add-to-dictionary.
+  win.webContents.on('context-menu', (_event, params) => {
+    if (!params.misspelledWord) return;
+    const items = params.dictionarySuggestions.map((s) => ({
+      label: s, click: () => win.webContents.replaceMisspelling(s),
+    }));
+    if (items.length) items.push({ type: 'separator' });
+    items.push(
+      { label: 'Add to Dictionary', click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord) },
+      { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
+    );
+    Menu.buildFromTemplate(items).popup();
+  });
+
   win.on('resize', scheduleSessionWrite);
   win.on('move', scheduleSessionWrite);
   win.on('close', persistSession);
