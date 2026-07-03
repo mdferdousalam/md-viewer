@@ -52,7 +52,7 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  win.on('closed', () => stopWatching(win));
+  win.on('closed', () => stopWatchingAll(win));
 
   return win;
 }
@@ -78,26 +78,34 @@ function openPathInWindow(win, filePath) {
 // polling is used because it survives the write-temp-then-rename that many
 // tools (and atomic savers) use, which `fs.watch` misses.
 
-function stopWatching(win) {
-  if (win.__watch) {
-    fs.unwatchFile(win.__watch.path, win.__watch.listener);
-    win.__watch = null;
-  }
+// `win.__watch` is a Map<path, listener> so every open tab's file is watched
+// (a background tab's file can change on disk too), not just the active one.
+function stopWatchingAll(win) {
+  if (!win.__watch) return;
+  for (const [p, l] of win.__watch) fs.unwatchFile(p, l);
+  win.__watch = null;
 }
 
-function startWatching(win, filePath) {
-  if (win.__watch && win.__watch.path === filePath) return; // already watching it
-  stopWatching(win);
-  const listener = (curr, prev) => {
-    if (curr.mtimeMs === prev.mtimeMs) return; // touch without content change
-    if (win.isDestroyed()) { fs.unwatchFile(filePath, listener); return; }
-    let content;
-    try { ({ content } = readFileSafe(filePath)); }
-    catch (_) { return; } // removed/renamed mid-write — ignore this tick
-    win.webContents.send('file:external-change', { filePath, content });
-  };
-  fs.watchFile(filePath, { interval: 300 }, listener);
-  win.__watch = { path: filePath, listener };
+// Reconcile the watched set to exactly `paths` (the open tabs' file paths).
+function setWatchedPaths(win, paths) {
+  const desired = new Set((paths || []).filter(Boolean));
+  if (!win.__watch) win.__watch = new Map();
+  for (const [p, l] of [...win.__watch]) {
+    if (!desired.has(p)) { fs.unwatchFile(p, l); win.__watch.delete(p); }
+  }
+  for (const p of desired) {
+    if (win.__watch.has(p)) continue;
+    const listener = (curr, prev) => {
+      if (curr.mtimeMs === prev.mtimeMs) return; // touch without content change
+      if (win.isDestroyed()) { fs.unwatchFile(p, listener); return; }
+      let content;
+      try { ({ content } = readFileSafe(p)); }
+      catch (_) { return; } // removed/renamed mid-write — ignore this tick
+      win.webContents.send('file:external-change', { filePath: p, content });
+    };
+    fs.watchFile(p, { interval: 300 }, listener);
+    win.__watch.set(p, listener);
+  }
 }
 
 async function handleOpenDialog(win) {
@@ -437,13 +445,11 @@ ipcMain.on('doc:event', (_e, evt) => {
   if (apiServer) apiServer.broadcast(evt);
 });
 
-// Renderer tells us which file (if any) is active so we watch the right one
-// for external changes. Passing null stops watching (e.g. a new/unsaved doc).
-ipcMain.on('doc:watch', (e, filePath) => {
+// Renderer tells us the full set of open files to watch for external changes
+// (one per tab). We reconcile the watcher set to match.
+ipcMain.on('doc:set-watched-paths', (e, paths) => {
   const win = BrowserWindow.fromWebContents(e.sender);
-  if (!win) return;
-  if (filePath) startWatching(win, filePath);
-  else stopWatching(win);
+  if (win) setWatchedPaths(win, paths);
 });
 
 // Asked when the file changed on disk while the user has unsaved edits.
