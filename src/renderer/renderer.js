@@ -255,6 +255,12 @@ const tabs = [];
 let activeId = null;
 let welcomeId = null; // the initial scratch tab, dropped when a real file opens
 function active() { return tabs.find((t) => t.id === activeId) || null; }
+// Resolve a control-API tab reference — { index } (position) or { path } — to a tab.
+function resolveTabRef({ index, path } = {}) {
+  if (typeof index === 'number') return tabs[index] || null;
+  if (path) return tabs.find((t) => t.filePath === path) || null;
+  return null;
+}
 // Tell main the full set of open files to watch for external changes.
 function updateWatched() { window.api.setWatchedPaths?.(tabs.map((t) => t.filePath).filter(Boolean)); }
 function tabText(t) { return t.id === activeId ? editor.value : t.content; }
@@ -628,11 +634,13 @@ function activateTab(id, force) {
   editor.focus();
 }
 
-async function closeTab(id) {
+async function closeTab(id, force) {
   const t = tabs.find((x) => x.id === id);
   if (!t) return;
   const idx = tabs.indexOf(t);
-  if (tabIsDirty(t)) {
+  // `force` (used by the control API) skips the interactive discard prompt so an
+  // agent-driven close never blocks on a modal dialog.
+  if (tabIsDirty(t) && !force) {
     if (id !== activeId) activateTab(id, true);
     if (!(await maybeConfirmDiscard())) return;
   }
@@ -1075,6 +1083,36 @@ const API_OPS = {
     theme: state.theme,
     tabs: tabs.map((t) => ({ filePath: t.filePath, active: t.id === activeId })),
   }),
+
+  // ---- Tab management (agent-native multi-doc control) ----
+  listTabs: async () => ({
+    tabs: tabs.map((t, i) => ({
+      index: i,
+      filePath: t.filePath,
+      title: baseName(t.filePath) || 'Untitled',
+      active: t.id === activeId,
+      dirty: tabIsDirty(t),
+    })),
+    activeIndex: tabs.findIndex((t) => t.id === activeId),
+  }),
+
+  activateTabRef: async ({ index, path } = {}) => {
+    const t = resolveTabRef({ index, path });
+    if (!t) throw new Error('tab not found; pass a valid { "index" } or { "path" }');
+    activateTab(t.id, true);
+    return { ok: true, activeIndex: tabs.findIndex((x) => x.id === activeId), filePath: t.filePath };
+  },
+
+  closeTabRef: async ({ index, path } = {}) => {
+    const t = resolveTabRef({ index, path });
+    if (!t) throw new Error('tab not found; pass a valid { "index" } or { "path" }');
+    await closeTab(t.id, true); // force: never block the HTTP reply on a discard modal
+    return {
+      ok: true,
+      activeIndex: tabs.findIndex((x) => x.id === activeId),
+      tabs: tabs.map((x, i) => ({ index: i, filePath: x.filePath, active: x.id === activeId })),
+    };
+  },
 
   setContent: async ({ content }) => {
     editor.value = content;

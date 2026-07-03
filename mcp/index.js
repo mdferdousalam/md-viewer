@@ -102,7 +102,7 @@ const wrap = (fn) => async (args) => {
   catch (e) { return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true }; }
 };
 
-const server = new McpServer({ name: 'md-viewer', version: '1.2.0' });
+const server = new McpServer({ name: 'md-viewer', version: '1.3.0' });
 
 server.tool('open_document', 'Open a Markdown file in the viewer.',
   { path: z.string().describe('Absolute path to a Markdown file') },
@@ -130,13 +130,32 @@ server.tool('insert_at_heading', 'Insert Markdown immediately before or after a 
   { heading: z.string(), markdown: z.string(), position: z.enum(['before', 'after']).default('after') },
   wrap(({ heading, markdown, position }) => jsonCall('POST', '/edit', { op: 'insertAtHeading', heading, markdown, position })));
 
-server.tool('set_view', 'Set the view mode and/or color theme.',
-  { mode: z.enum(['editor', 'split', 'preview']).optional(), theme: z.enum(['dark', 'light', 'sepia']).optional() },
+server.tool('set_view', 'Set the view mode, color theme, and panels; also controls presentation mode and the outline/backlinks panels.',
+  {
+    mode: z.enum(['editor', 'split', 'preview', 'live']).optional().describe('Editor-only, split, preview-only, or live (Typora-style) preview'),
+    theme: z.enum(['dark', 'light', 'sepia']).optional(),
+    outline: z.boolean().optional().describe('Show/hide the document outline panel'),
+    backlinks: z.boolean().optional().describe('Show/hide the backlinks panel (workspace notes that link here via [[wiki links]])'),
+    zen: z.boolean().optional().describe('Toggle focus/zen mode'),
+    present: z.boolean().optional().describe('Enter/exit fullscreen presentation (document split into slides on --- separators)'),
+    slide: z.number().int().optional().describe('While presenting, jump to this 0-based slide index'),
+  },
   wrap((a) => jsonCall('POST', '/view', a)));
 
 server.tool('save', 'Save the document to disk (its current path, or a given path).',
   { path: z.string().optional() },
   wrap((a) => jsonCall('POST', '/save', a)));
+
+server.tool('list_tabs', 'List the open tabs — each with its index, file path, title, whether it is active, and whether it has unsaved changes — plus the active tab index.',
+  {}, wrap(() => jsonCall('GET', '/tabs')));
+
+server.tool('activate_tab', 'Switch to an open tab by its index or file path. Document and edit tools then act on this tab. Use open_document to open a file that is not already a tab.',
+  { index: z.number().int().optional().describe('0-based tab index from list_tabs'), path: z.string().optional().describe('File path of an open tab') },
+  wrap((a) => jsonCall('POST', '/tabs/activate', a)));
+
+server.tool('close_tab', 'Close an open tab by its index or file path. Unsaved changes are discarded without prompting, so save first if needed.',
+  { index: z.number().int().optional(), path: z.string().optional() },
+  wrap((a) => jsonCall('POST', '/tabs/close', a)));
 
 server.tool('render_to_html', 'Export the current document to a self-contained HTML file (diagrams, math and highlighting baked in).',
   { out: z.string().describe('Output .html path') },
