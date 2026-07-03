@@ -270,6 +270,8 @@ const outlineEl = $('outline');
 const outlineList = $('outlineList');
 const themeToggle = $('themeToggle');
 const tabStrip = $('tabstrip');
+const fileTreeEl = $('fileTree');
+const fileTreeList = $('fileTreeList');
 
 // ============================================================
 // Render loop
@@ -503,6 +505,7 @@ function activateTab(id, force) {
   updateWatched();
   window.api.emitEvent?.('opened', { filePath: t.filePath });
   renderTabs();
+  updateFileTreeActive();
   pushSession();
   scheduleRender();
   editor.focus();
@@ -561,6 +564,7 @@ function pushSession() {
     window.api.saveSession?.({
       tabs: tabs.map((t) => (t.filePath ? { filePath: t.filePath } : { content: (t.content || '').slice(0, 200000) })),
       activeIndex: tabs.findIndex((t) => t.id === activeId),
+      workspaceRoot,
     });
   }, 500);
 }
@@ -585,10 +589,84 @@ async function restoreSession(session) {
 
 async function onSessionRestore({ session, openAfter }) {
   if (session) await restoreSession(session);
+  if (session && session.workspaceRoot) setWorkspaceRoot(session.workspaceRoot);
   if (openAfter) {
     const res = await window.api.readFile(openAfter);
     if (res && !res.error) openInNewTab(res.filePath, res.content);
   }
+}
+
+// ---- File-tree sidebar ---------------------------------------------------
+let workspaceRoot = null;
+const expandedDirs = new Set();
+
+async function openFolder() {
+  const root = await window.api.pickFolder?.();
+  if (root) setWorkspaceRoot(root);
+}
+
+function setWorkspaceRoot(root) {
+  workspaceRoot = root;
+  expandedDirs.clear();
+  window.api.watchFolder?.(root);
+  toggleFileTree(true);
+  renderFileTree();
+  pushSession();
+}
+
+function toggleFileTree(force) {
+  const open = force !== undefined ? force : fileTreeEl.hidden;
+  if (open && !workspaceRoot) { openFolder(); return; }
+  fileTreeEl.hidden = !open;
+  document.querySelectorAll('[data-action="files"]').forEach((b) => {
+    if (!b.closest('.ft-head')) b.classList.toggle('active', open);
+  });
+}
+
+async function renderFileTree() {
+  if (!fileTreeList) return;
+  fileTreeList.innerHTML = '';
+  if (!workspaceRoot) { fileTreeList.innerHTML = '<div class="ft-empty">No folder open</div>'; return; }
+  await renderDir(workspaceRoot, 0, fileTreeList);
+}
+
+async function renderDir(dir, depth, container) {
+  const res = await window.api.listDir?.(dir);
+  if (!res || res.error) return;
+  const activePath = active() && active().filePath;
+  for (const ent of res.entries) {
+    const row = document.createElement('div');
+    row.className = 'ft-row ' + (ent.isDir ? 'ft-dir' : 'ft-file') + (!ent.isDir && ent.path === activePath ? ' active' : '');
+    row.style.paddingLeft = `${8 + depth * 14}px`;
+    const icon = ent.isDir ? (expandedDirs.has(ent.path) ? '#i-chevron-down' : '#i-chevron-right') : '#i-file';
+    row.innerHTML = `<svg class="ic ft-ic"><use href="${icon}"/></svg><span class="ft-name"></span>`;
+    row.querySelector('.ft-name').textContent = ent.name;
+    row.title = ent.path;
+    row.addEventListener('click', () => {
+      if (ent.isDir) {
+        if (expandedDirs.has(ent.path)) expandedDirs.delete(ent.path); else expandedDirs.add(ent.path);
+        renderFileTree();
+      } else {
+        openWorkspaceFile(ent.path);
+      }
+    });
+    container.appendChild(row);
+    if (ent.isDir && expandedDirs.has(ent.path)) await renderDir(ent.path, depth + 1, container);
+  }
+}
+
+async function openWorkspaceFile(fp) {
+  const existing = tabs.find((t) => t.filePath === fp);
+  if (existing) { activateTab(existing.id); return; }
+  const res = await window.api.readFile(fp);
+  if (res && !res.error) openInNewTab(res.filePath, res.content);
+}
+
+// Cheap highlight update (no directory re-listing) when the active tab changes.
+function updateFileTreeActive() {
+  if (!fileTreeList) return;
+  const activePath = active() && active().filePath;
+  fileTreeList.querySelectorAll('.ft-file').forEach((r) => r.classList.toggle('active', r.title === activePath));
 }
 
 // A program/agent (or another editor) rewrote the open file on disk.
@@ -1118,6 +1196,8 @@ $('replaceAll').addEventListener('click', replaceAll);
 const COMMANDS = [
   { id: 'new', label: 'New File', key: '⌘N', icon: 'i-new', run: doNew },
   { id: 'open', label: 'Open File…', key: '⌘O', icon: 'i-open', run: doOpen },
+  { id: 'openfolder', label: 'Open Folder…', icon: 'i-folder', run: openFolder },
+  { id: 'files', label: 'Toggle Files Sidebar', icon: 'i-folder', run: () => toggleFileTree() },
   { id: 'save', label: 'Save', key: '⌘S', icon: 'i-save', run: () => doSave(false) },
   { id: 'saveas', label: 'Save As…', key: '⌘⇧S', icon: 'i-save', run: () => doSave(true) },
   { id: 'exporthtml', label: 'Export as HTML…', icon: 'i-code', run: doExportHtml },
@@ -1229,6 +1309,7 @@ $('toolbar').addEventListener('click', (e) => {
     case 'new': return doNew();
     case 'open': return doOpen();
     case 'save': return doSave();
+    case 'files': return toggleFileTree();
     case 'outline': return toggleOutline();
     case 'palette': return openPalette();
     case 'zen': return toggleZen();
@@ -1242,6 +1323,10 @@ document.querySelectorAll('[data-action="outline"]').forEach((b) => b.addEventLi
 document.querySelectorAll('[data-action="help"]').forEach((b) => b.addEventListener('click', (e) => {
   if (e.currentTarget.closest('.help-head')) toggleHelp(false);
 }));
+document.querySelectorAll('[data-action="files"]').forEach((b) => b.addEventListener('click', (e) => {
+  if (e.currentTarget.closest('.ft-head')) toggleFileTree(false);
+}));
+document.querySelectorAll('[data-action="open-folder"]').forEach((b) => b.addEventListener('click', openFolder));
 
 // Editor input / selection changes are delivered via the facade's
 // onDocChange (scheduleRender) and onSelectionChange (updateCursor) callbacks.
@@ -1252,6 +1337,7 @@ editor.view.contentDOM.addEventListener('paste', onEditorPaste, true);
 window.api.onFileOpened(({ filePath, content }) => openInNewTab(filePath, content));
 window.api.onExternalChange(onExternalChange);
 window.api.onSessionRestore?.(onSessionRestore);
+window.api.onWorkspaceChanged?.(() => { if (workspaceRoot) renderFileTree(); });
 window.api.onMenuNew(doNew);
 window.api.onMenuSave(() => doSave(false));
 window.api.onMenuSaveAs(() => doSave(true));

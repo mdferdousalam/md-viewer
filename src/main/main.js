@@ -54,6 +54,7 @@ function createWindow(bounds) {
   win.on('resize', scheduleSessionWrite);
   win.on('move', scheduleSessionWrite);
   win.on('close', persistSession);
+  win.on('closed', () => { if (folderWatcher) { try { folderWatcher.close(); } catch (_) {} folderWatcher = null; } });
 
   // Open external links in the user's browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -489,6 +490,58 @@ ipcMain.on('doc:set-watched-paths', (e, paths) => {
 
 // Renderer pushes its tab snapshot; merged with window bounds and persisted.
 ipcMain.on('session:tabs', (_e, snapshot) => { rendererTabs = snapshot; scheduleSessionWrite(); });
+
+// ---- Workspace folder / file tree ---------------------------------------
+const MD_RE = /\.(md|markdown|mdown|mkd|txt)$/i;
+const SKIP_DIR = new Set(['.git', 'node_modules', '.obsidian', '.vscode', '.idea']);
+let folderWatcher = null;
+let folderWatchTimer = null;
+
+ipcMain.handle('fs:pick-folder', async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    title: 'Open Folder', properties: ['openDirectory'],
+  });
+  return canceled || !filePaths.length ? null : filePaths[0];
+});
+
+// One directory level (lazy): directories + markdown files, hidden/build dirs
+// skipped, dirs first then files, capped.
+ipcMain.handle('fs:list-dir', (_e, dirPath) => {
+  try {
+    const out = [];
+    for (const ent of fs.readdirSync(dirPath, { withFileTypes: true })) {
+      if (ent.name.startsWith('.') || SKIP_DIR.has(ent.name)) continue;
+      const isDir = ent.isDirectory();
+      if (!isDir && !MD_RE.test(ent.name)) continue;
+      out.push({ name: ent.name, path: path.join(dirPath, ent.name), isDir });
+      if (out.length >= 2000) break;
+    }
+    out.sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
+    return { entries: out };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Watch the workspace root for structural changes so the tree can refresh.
+// `recursive` is supported on macOS/Windows only; on Linux we skip auto-watch.
+function watchFolder(win, root) {
+  if (folderWatcher) { try { folderWatcher.close(); } catch (_) {} folderWatcher = null; }
+  if (!root) return;
+  const recursive = process.platform === 'darwin' || process.platform === 'win32';
+  try {
+    folderWatcher = fs.watch(root, { recursive }, () => {
+      clearTimeout(folderWatchTimer);
+      folderWatchTimer = setTimeout(() => {
+        if (win && !win.isDestroyed()) win.webContents.send('workspace:changed');
+      }, 300);
+    });
+  } catch (_) { /* watching unsupported here — tree refreshes on manual re-open */ }
+}
+ipcMain.on('workspace:watch', (e, root) => {
+  watchFolder(BrowserWindow.fromWebContents(e.sender), root);
+});
 
 // Asked when the file changed on disk while the user has unsaved edits.
 ipcMain.handle('dialog:confirm-reload', async (e) => {

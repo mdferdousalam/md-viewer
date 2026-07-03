@@ -43,6 +43,9 @@
         <g id="i-close"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></g>
         <g id="i-chevron-down"><polyline points="6 9 12 15 18 9"/></g>
         <g id="i-live"><path d="M3 21l9-9"/><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8L19 13"/><path d="M17.8 6.2L19 5"/><path d="M12.2 6.2L11 5"/></g>
+        <g id="i-chevron-right"><polyline points="9 6 15 12 9 18"/></g>
+        <g id="i-file"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></g>
+        <g id="i-folder"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></g>
       </defs>
     </svg>
 
@@ -88,6 +91,7 @@
         <span class="tb-spacer"></span>
 
         <div class="tb-group">
+          <button class="tb-btn" data-action="files" data-tip="Files sidebar"><svg class="ic"><use href="#i-folder"/></svg></button>
           <button class="tb-btn" data-action="outline" data-tip="Outline"><svg class="ic"><use href="#i-outline"/></svg></button>
           <button class="tb-btn" data-action="palette" data-tip="Commands (⌘⇧P)"><svg class="ic"><use href="#i-search"/></svg></button>
         </div>
@@ -109,6 +113,15 @@
       <nav class="tabstrip" id="tabstrip" hidden></nav>
 
       <div class="workspace view-split" id="workspace">
+        <aside class="filetree" id="fileTree" hidden>
+          <div class="ft-head">
+            <span>Files</span>
+            <button class="icon-btn" data-action="open-folder" data-tip="Open folder…"><svg class="ic"><use href="#i-folder"/></svg></button>
+            <button class="icon-btn" data-action="files" data-tip="Hide files"><svg class="ic"><use href="#i-close"/></svg></button>
+          </div>
+          <div class="ft-list" id="fileTreeList"></div>
+        </aside>
+
         <aside class="outline" id="outline" hidden>
           <div class="outline-head">
             <span>Outline</span>

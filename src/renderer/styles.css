@@ -333,6 +333,30 @@ html, body {
 .outline-item.lvl-5, .outline-item.lvl-6 { padding-left: 58px; font-size: 12px; }
 .outline-empty { padding: 8px 14px; color: var(--text-dim); font-size: 12.5px; font-style: italic; }
 
+/* File-tree sidebar */
+.filetree {
+  width: 240px; flex: none; background: var(--surface);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden;
+}
+.ft-head {
+  display: flex; align-items: center; gap: 4px;
+  padding: 10px 8px 8px 14px;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim);
+}
+.ft-head span { flex: 1; }
+.ft-list { overflow: auto; padding: 0 6px 12px; flex: 1; }
+.ft-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 6px; cursor: pointer;
+  color: var(--text-2); font-size: 13px; white-space: nowrap; overflow: hidden;
+}
+.ft-row:hover { background: var(--surface-hover); color: var(--text); }
+.ft-row.active { background: var(--accent-soft); color: var(--accent-text); }
+.ft-ic { width: 15px; height: 15px; flex: none; color: var(--text-dim); }
+.ft-dir > .ft-ic { color: var(--text-2); }
+.ft-name { overflow: hidden; text-overflow: ellipsis; }
+.ft-empty { padding: 10px 14px; color: var(--text-dim); font-size: 12.5px; font-style: italic; }
+
 /* ============================================================
    Editor
    ============================================================ */
