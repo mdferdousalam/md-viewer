@@ -1155,6 +1155,33 @@ async function exportPdf() {
   else if (res) flash('PDF exported');
 }
 
+// Word-compatible HTML (.doc): the same rendered body wrapped in the MS Office
+// namespaces + an mso conditional block, which Word and LibreOffice open as a
+// document — a dependency-free "export to Word" that preserves headings, lists,
+// tables, images, math and highlighting.
+function buildWordHtml() {
+  const title = (baseName(active() && active().filePath) || 'Markdown Export').replace(/\.[^.]+$/, '');
+  return `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+<head><meta charset="UTF-8"><title>${escapeHtml(title)}</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml><![endif]-->
+<style>${collectCss()}\n${EXPORT_RESET}\n@page{size:A4;margin:2cm}</style></head>
+<body class="markdown-body">${preview.innerHTML}</body></html>`;
+}
+
+async function doExportDocx() {
+  const res = await window.api.exportDocx?.({
+    html: buildWordHtml(),
+    title: (baseName(active() && active().filePath) || 'export').replace(/\.[^.]+$/, ''),
+  });
+  if (res && res.error) flash('Word export failed');
+  else if (res) flash('Exported to Word');
+}
+
+// Print the rendered document via the OS print dialog (which offers Save-as-PDF
+// too). The @media print stylesheet hides the app chrome and shows only the
+// preview, so this works from any view mode (the preview stays populated).
+function doPrint() { window.print(); }
+
 // ============================================================
 // Programmatic API — ops the main process can request over the bridge
 // (headless CLI export today; the local control API in a later phase).
@@ -1241,6 +1268,17 @@ const API_OPS = {
     });
     await renderMermaid();
     return buildStandaloneHtml();
+  },
+
+  // Word-compatible HTML for the CURRENT document (used by /export to=docx).
+  getWordHtml: async () => {
+    preview.innerHTML = renderMarkdown(editor.value);
+    preview.querySelectorAll('a[href]').forEach((a) => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    });
+    await renderMermaid();
+    return buildWordHtml();
   },
 
   getDocument: async () => ({
@@ -1633,6 +1671,8 @@ const COMMANDS = [
   { id: 'saveas', label: 'Save As…', key: '⌘⇧S', icon: 'i-save', run: () => doSave(true) },
   { id: 'exporthtml', label: 'Export as HTML…', icon: 'i-code', run: doExportHtml },
   { id: 'exportpdf', label: 'Export as PDF…', icon: 'i-save', run: exportPdf },
+  { id: 'exportdocx', label: 'Export as Word (.doc)…', icon: 'i-save', run: doExportDocx },
+  { id: 'print', label: 'Print…', key: '⌘⇧O', icon: 'i-save', run: doPrint },
   { id: 'copyhtml', label: 'Copy as HTML', icon: 'i-code', run: copyHtml },
   { id: 'autosave', label: 'Toggle Autosave (on/off)', icon: 'i-save', run: toggleAutosave },
   { id: 'find', label: 'Find & Replace', key: '⌘F', icon: 'i-search', run: openFind },
@@ -1965,6 +2005,8 @@ window.api.onMenuPalette(openPalette);
 window.api.onMenuOutline(() => toggleOutline());
 window.api.onMenuZen(() => toggleZen());
 window.api.onMenuExportPdf(exportPdf);
+window.api.onMenuExportDocx?.(doExportDocx);
+window.api.onMenuPrint?.(doPrint);
 // ⌘W closes the active tab; on the last tab it closes the window (honouring the
 // unsaved-changes guard in beforeunload).
 window.api.onMenuCloseTab?.(() => { if (tabs.length > 1 && activeId) closeTab(activeId); else window.close(); });

@@ -166,6 +166,10 @@ server.tool('render_to_pdf', 'Export the current document to a PDF file.',
   { out: z.string().describe('Output .pdf path') },
   wrap(({ out }) => jsonCall('POST', '/export', { to: 'pdf', out })));
 
+server.tool('render_to_docx', 'Export the current document to a Word-compatible file (.doc) that opens in Microsoft Word or LibreOffice, with headings, lists, tables, math and highlighting preserved.',
+  { out: z.string().describe('Output .doc path') },
+  wrap(({ out }) => jsonCall('POST', '/export', { to: 'docx', out })));
+
 server.tool('screenshot_preview', 'Capture the rendered preview as a PNG image so you can see exactly how the document looks (useful for verifying diagrams, math and layout).',
   {}, wrap(async () => {
     const res = await call('GET', '/screenshot');

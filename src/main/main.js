@@ -323,6 +323,15 @@ function buildMenu() {
           label: 'Export as PDF…',
           click: () => sendToFocused('menu:export-pdf'),
         },
+        {
+          label: 'Export as Word…',
+          click: () => sendToFocused('menu:export-docx'),
+        },
+        {
+          label: 'Print…',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: () => sendToFocused('menu:print'),
+        },
         { type: 'separator' },
         {
           label: 'Close Tab',
@@ -451,6 +460,22 @@ ipcMain.handle('file:save', (e, payload) => {
 
 ipcMain.handle('file:export-html', (e, payload) => {
   return exportHtml(BrowserWindow.fromWebContents(e.sender), payload);
+});
+
+ipcMain.handle('file:export-docx', async (e, { html, title }) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Export as Word',
+    defaultPath: (title || 'export') + '.doc',
+    filters: [{ name: 'Word Document', extensions: ['doc'] }],
+  });
+  if (canceled || !filePath) return null;
+  try {
+    fs.writeFileSync(filePath, html, 'utf8');
+    return { filePath };
+  } catch (err) {
+    return { error: err.message };
+  }
 });
 
 ipcMain.handle('file:export-pdf', async (e, { html, title }) => {

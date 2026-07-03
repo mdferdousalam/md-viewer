@@ -752,3 +752,29 @@ html, body {
   color: var(--text-dim); font-size: 14px; text-align: center;
 }
 .graph-empty code { background: var(--code-inline); padding: 1px 6px; border-radius: 4px; }
+
+/* ============================================================
+   Print — hide the app chrome, print only the rendered preview
+   ============================================================ */
+@media print {
+  .toolbar, .statusbar, .tabstrip, .filetree, .outline, .backlinks, .divider,
+  .editor-pane, .overlay, .slideshow, .graph, .find-bar, #themeToggle,
+  .toast { display: none !important; }
+  html, body, .app, .workspace {
+    height: auto !important; min-height: 0 !important; max-height: none !important;
+    overflow: visible !important; position: static !important; display: block !important;
+    background: #fff !important;
+  }
+  .preview-pane {
+    display: block !important; flex: none !important; width: 100% !important;
+    border: none !important; overflow: visible !important;
+  }
+  #preview {
+    padding: 0 !important; max-width: none !important; overflow: visible !important;
+    color: #000 !important;
+  }
+  .markdown-body { max-width: none !important; }
+  .markdown-body a { color: #000 !important; text-decoration: underline; }
+  pre, blockquote, table, .callout, img { break-inside: avoid; }
+  h1, h2, h3, h4 { break-after: avoid; }
+}
