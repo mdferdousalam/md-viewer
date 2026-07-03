@@ -1233,6 +1233,7 @@ const COMMANDS = [
   { id: 'new', label: 'New File', key: '⌘N', icon: 'i-new', run: doNew },
   { id: 'open', label: 'Open File…', key: '⌘O', icon: 'i-open', run: doOpen },
   { id: 'openfolder', label: 'Open Folder…', icon: 'i-folder', run: openFolder },
+  { id: 'quickopen', label: 'Quick Open File…', key: '⌘P', icon: 'i-file', run: openQuickOpen },
   { id: 'files', label: 'Toggle Files Sidebar', icon: 'i-folder', run: () => toggleFileTree() },
   { id: 'save', label: 'Save', key: '⌘S', icon: 'i-save', run: () => doSave(false) },
   { id: 'saveas', label: 'Save As…', key: '⌘⇧S', icon: 'i-save', run: () => doSave(true) },
@@ -1298,6 +1299,69 @@ function scrollPalette() { paletteList.children[paletteSel]?.scrollIntoView({ bl
 paletteOverlay.addEventListener('mousedown', (e) => { if (e.target === paletteOverlay) closePalette(); });
 
 // ============================================================
+// Quick open (fuzzy file switcher over the workspace)
+// ============================================================
+
+const quickOpenOverlay = $('quickOpenOverlay');
+const quickOpenInput = $('quickOpenInput');
+const quickOpenList = $('quickOpenList');
+let qoFiles = [];
+let qoFiltered = [];
+let qoSel = 0;
+
+async function openQuickOpen() {
+  if (!workspaceRoot) { openFolder(); return; }
+  const res = await window.api.walkWorkspace?.(workspaceRoot);
+  qoFiles = (res && res.files) || [];
+  quickOpenOverlay.hidden = false;
+  quickOpenInput.value = '';
+  renderQuickOpen('');
+  quickOpenInput.focus();
+}
+function closeQuickOpen() { quickOpenOverlay.hidden = true; editor.focus(); }
+
+// Subsequence fuzzy score (lower = tighter match; Infinity = no match).
+function fuzzyScore(q, s) {
+  q = q.toLowerCase(); s = s.toLowerCase();
+  let qi = 0, score = 0, last = -1;
+  for (let i = 0; i < s.length && qi < q.length; i++) {
+    if (s[i] === q[qi]) { if (last >= 0) score += i - last - 1; last = i; qi++; }
+  }
+  return qi === q.length ? score : Infinity;
+}
+
+function renderQuickOpen(q) {
+  qoFiltered = !q
+    ? qoFiles.slice(0, 200)
+    : qoFiles.map((f) => ({ f, sc: fuzzyScore(q, f.relPath) }))
+        .filter((x) => x.sc !== Infinity).sort((a, b) => a.sc - b.sc).slice(0, 200).map((x) => x.f);
+  qoSel = 0;
+  quickOpenList.innerHTML = '';
+  if (!qoFiltered.length) { quickOpenList.innerHTML = '<div class="palette-empty">No matching files</div>'; return; }
+  qoFiltered.forEach((f, i) => {
+    const li = document.createElement('li');
+    li.className = 'palette-item' + (i === 0 ? ' active' : '');
+    li.innerHTML = '<svg class="ic"><use href="#i-file"/></svg><span class="palette-label"></span><span class="palette-key"></span>';
+    li.querySelector('.palette-label').textContent = f.name;
+    li.querySelector('.palette-key').textContent = f.relPath;
+    li.addEventListener('click', () => runQuickOpen(i));
+    li.addEventListener('mousemove', () => setQoSel(i));
+    quickOpenList.appendChild(li);
+  });
+}
+function setQoSel(i) { qoSel = i; [...quickOpenList.children].forEach((el, idx) => el.classList.toggle('active', idx === i)); }
+function runQuickOpen(i) { const f = qoFiltered[i]; closeQuickOpen(); if (f) openWorkspaceFile(f.path); }
+
+quickOpenInput.addEventListener('input', () => renderQuickOpen(quickOpenInput.value));
+quickOpenInput.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); setQoSel(Math.min(qoSel + 1, qoFiltered.length - 1)); quickOpenList.children[qoSel]?.scrollIntoView({ block: 'nearest' }); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setQoSel(Math.max(qoSel - 1, 0)); quickOpenList.children[qoSel]?.scrollIntoView({ block: 'nearest' }); }
+  else if (e.key === 'Enter') { e.preventDefault(); runQuickOpen(qoSel); }
+  else if (e.key === 'Escape') closeQuickOpen();
+});
+quickOpenOverlay.addEventListener('mousedown', (e) => { if (e.target === quickOpenOverlay) closeQuickOpen(); });
+
+// ============================================================
 // Shortcut help
 // ============================================================
 
@@ -1305,7 +1369,7 @@ const helpOverlay = $('helpOverlay');
 const SHORTCUTS = [
   ['New file / tab', '⌘N / ⌘T'], ['Open', '⌘O'], ['Save', '⌘S'], ['Save As', '⌘⇧S'],
   ['Bold', '⌘B'], ['Italic', '⌘I'], ['Insert link', '⌘K'],
-  ['Find & replace', '⌘F'], ['Command palette', '⌘⇧P'],
+  ['Find & replace', '⌘F'], ['Quick open / Command palette', '⌘P / ⌘⇧P'],
   ['Editor / Split / Preview / Live', '⌘1 / ⌘2 / ⌘3 / ⌘4'], ['Toggle outline', '⌘\\'],
   ['Focus mode', '⌘⇧F'], ['Cycle theme', '⌘⇧L'], ['Shortcuts', '?'],
 ];
@@ -1394,6 +1458,7 @@ window.addEventListener('keydown', (e) => {
   // ? opens help when not typing
   if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); toggleHelp(true); return; }
   if (e.key === 'Escape') {
+    if (!quickOpenOverlay.hidden) return closeQuickOpen();
     if (!paletteOverlay.hidden) return closePalette();
     if (!helpOverlay.hidden) return toggleHelp(false);
     if (!findBar.hidden) return closeFind();
@@ -1406,6 +1471,7 @@ window.addEventListener('keydown', (e) => {
   else if (k === 'f' && e.shiftKey) { e.preventDefault(); toggleZen(); }
   else if (k === 'f') { e.preventDefault(); openFind(); }
   else if (k === 'p' && e.shiftKey) { e.preventDefault(); openPalette(); }
+  else if (k === 'p') { e.preventDefault(); openQuickOpen(); }
   else if (k === 'l' && e.shiftKey) { e.preventDefault(); cycleTheme(); }
   else if (k === '\\') { e.preventDefault(); toggleOutline(); }
   else if (k === '1') { e.preventDefault(); setViewMode('editor'); }
