@@ -223,6 +223,8 @@ async function renderMermaid() {
 // Workspace-level state (shared across tabs).
 const state = { viewMode: 'split', theme: 'dark', zen: false, outlineOpen: false };
 let autosaveEnabled = true; // persisted in the session; toggled from the palette
+const PREFS_DEFAULT = { readWidth: 780, readSize: 15.5, readLineHeight: 1.72, editorSize: 14.5 };
+let prefs = { ...PREFS_DEFAULT }; // typography prefs, persisted in the session
 
 // Open documents. Only the ACTIVE tab's text lives in the CodeMirror editor;
 // switching tabs swaps content/caret/scroll in and out. Each tab tracks its
@@ -568,7 +570,7 @@ function pushSession() {
       tabs: tabs.map((t) => (t.filePath ? { filePath: t.filePath } : { content: (t.content || '').slice(0, 200000) })),
       activeIndex: tabs.findIndex((t) => t.id === activeId),
       workspaceRoot,
-      settings: { autosave: autosaveEnabled },
+      settings: { autosave: autosaveEnabled, prefs },
     });
   }, 500);
 }
@@ -592,8 +594,9 @@ async function restoreSession(session) {
 }
 
 async function onSessionRestore({ session, openAfter }) {
-  if (session && session.settings && typeof session.settings.autosave === 'boolean') {
-    autosaveEnabled = session.settings.autosave;
+  if (session && session.settings) {
+    if (typeof session.settings.autosave === 'boolean') autosaveEnabled = session.settings.autosave;
+    if (session.settings.prefs) { prefs = { ...PREFS_DEFAULT, ...session.settings.prefs }; applyPrefs(); }
   }
   if (session) await restoreSession(session);
   if (session && session.workspaceRoot) setWorkspaceRoot(session.workspaceRoot);
@@ -1249,6 +1252,7 @@ const COMMANDS = [
   { id: 'vl', label: 'View: Live preview (Typora-style)', key: '⌘4', icon: 'i-live', run: () => setViewMode('live') },
   { id: 'zen', label: 'Toggle Focus Mode', key: '⌘⇧F', icon: 'i-zen', run: () => toggleZen() },
   { id: 'theme', label: 'Cycle Theme (Dark / Light / Sepia)', key: '⌘⇧L', icon: 'i-sun', run: cycleTheme },
+  { id: 'prefs', label: 'Preferences…', key: '⌘,', icon: 'i-outline', run: openPrefs },
   { id: 'help', label: 'Keyboard Shortcuts', key: '?', icon: 'i-help', run: () => toggleHelp(true) },
 ];
 
@@ -1385,6 +1389,40 @@ function toggleHelp(force) {
 helpOverlay.addEventListener('mousedown', (e) => { if (e.target === helpOverlay) toggleHelp(false); });
 
 // ============================================================
+// Preferences (typography + behaviour)
+// ============================================================
+
+const prefsOverlay = $('prefsOverlay');
+
+function applyPrefs() {
+  const r = document.documentElement.style;
+  r.setProperty('--read-width', prefs.readWidth + 'px');
+  r.setProperty('--read-size', prefs.readSize + 'px');
+  r.setProperty('--read-lh', String(prefs.readLineHeight));
+  r.setProperty('--editor-size', prefs.editorSize + 'px');
+}
+function syncPrefsUI() {
+  $('prefReadWidth').value = prefs.readWidth; $('prefReadWidthVal').textContent = prefs.readWidth + 'px';
+  $('prefReadSize').value = prefs.readSize; $('prefReadSizeVal').textContent = prefs.readSize + 'px';
+  $('prefLineHeight').value = prefs.readLineHeight; $('prefLineHeightVal').textContent = prefs.readLineHeight;
+  $('prefEditorSize').value = prefs.editorSize; $('prefEditorSizeVal').textContent = prefs.editorSize + 'px';
+  $('prefAutosave').checked = autosaveEnabled;
+}
+function openPrefs() { syncPrefsUI(); prefsOverlay.hidden = false; }
+function closePrefs() { prefsOverlay.hidden = true; editor.focus(); }
+function bindPref(id, key) {
+  $(id).addEventListener('input', (e) => { prefs[key] = parseFloat(e.target.value); applyPrefs(); syncPrefsUI(); pushSession(); });
+}
+bindPref('prefReadWidth', 'readWidth');
+bindPref('prefReadSize', 'readSize');
+bindPref('prefLineHeight', 'readLineHeight');
+bindPref('prefEditorSize', 'editorSize');
+$('prefAutosave').addEventListener('change', (e) => { autosaveEnabled = e.target.checked; if (autosaveEnabled) scheduleAutosave(); pushSession(); });
+$('prefReset').addEventListener('click', () => { prefs = { ...PREFS_DEFAULT }; applyPrefs(); syncPrefsUI(); pushSession(); });
+prefsOverlay.addEventListener('mousedown', (e) => { if (e.target === prefsOverlay) closePrefs(); });
+document.querySelectorAll('[data-action="prefs-close"]').forEach((b) => b.addEventListener('click', closePrefs));
+
+// ============================================================
 // Toast
 // ============================================================
 
@@ -1458,6 +1496,7 @@ window.addEventListener('keydown', (e) => {
   // ? opens help when not typing
   if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); toggleHelp(true); return; }
   if (e.key === 'Escape') {
+    if (!prefsOverlay.hidden) return closePrefs();
     if (!quickOpenOverlay.hidden) return closeQuickOpen();
     if (!paletteOverlay.hidden) return closePalette();
     if (!helpOverlay.hidden) return toggleHelp(false);
@@ -1466,7 +1505,8 @@ window.addEventListener('keydown', (e) => {
   }
   if (!mod) return;
   const k = e.key.toLowerCase();
-  if (k === 't') { e.preventDefault(); doNew(); }
+  if (k === ',') { e.preventDefault(); openPrefs(); }
+  else if (k === 't') { e.preventDefault(); doNew(); }
   else if (k === 's') { e.preventDefault(); doSave(e.shiftKey); }
   else if (k === 'f' && e.shiftKey) { e.preventDefault(); toggleZen(); }
   else if (k === 'f') { e.preventDefault(); openFind(); }
@@ -1550,6 +1590,7 @@ Happy writing! ✍️
   let saved = 'dark';
   try { const t = localStorage.getItem('mdviewer.theme'); if (THEMES.includes(t)) saved = t; } catch (_) {}
   setTheme(saved);
+  applyPrefs();
   setViewMode('split');
   buildHelp();
   // Icon-only controls get an accessible name from their tooltip text.

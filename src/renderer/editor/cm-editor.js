@@ -52,7 +52,7 @@ const mdHighlight = HighlightStyle.define([
 const baseTheme = EditorView.theme({
   '&': { height: '100%', color: 'var(--text)', backgroundColor: 'transparent' },
   '.cm-scroller': {
-    fontFamily: 'var(--font-mono)', fontSize: '14.5px', lineHeight: '1.75', overflow: 'auto',
+    fontFamily: 'var(--font-mono)', fontSize: 'var(--editor-size, 14.5px)', lineHeight: '1.75', overflow: 'auto',
   },
   '.cm-content': { padding: '28px 40px 60px', caretColor: 'var(--accent)' },
   '.cm-line': { padding: '0' },
