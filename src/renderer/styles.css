@@ -615,6 +615,15 @@ html, body {
 .pref-check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .pref-check > span { flex: 1; }
 .prefs .text-btn { align-self: flex-start; margin-top: 4px; }
+.pref-css { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; color: var(--text-2); }
+.pref-css em { color: var(--text-dim); font-style: normal; font-size: 12px; }
+.pref-css-area {
+  width: 100%; min-height: 96px; resize: vertical;
+  background: var(--bg-editor); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 8px 10px; outline: none;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5;
+}
+.pref-css-area:focus { border-color: var(--accent); }
 
 /* ============================================================
    Toast

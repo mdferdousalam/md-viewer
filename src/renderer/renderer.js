@@ -223,7 +223,7 @@ async function renderMermaid() {
 // Workspace-level state (shared across tabs).
 const state = { viewMode: 'split', theme: 'dark', zen: false, outlineOpen: false };
 let autosaveEnabled = true; // persisted in the session; toggled from the palette
-const PREFS_DEFAULT = { readWidth: 780, readSize: 15.5, readLineHeight: 1.72, editorSize: 14.5 };
+const PREFS_DEFAULT = { readWidth: 780, readSize: 15.5, readLineHeight: 1.72, editorSize: 14.5, userCss: '' };
 let prefs = { ...PREFS_DEFAULT }; // typography prefs, persisted in the session
 
 // Open documents. Only the ACTIVE tab's text lives in the CodeMirror editor;
@@ -1394,18 +1394,25 @@ helpOverlay.addEventListener('mousedown', (e) => { if (e.target === helpOverlay)
 
 const prefsOverlay = $('prefsOverlay');
 
+let userCssEl = null;
+function applyUserCss() {
+  if (!userCssEl) { userCssEl = document.createElement('style'); userCssEl.id = 'user-css'; document.head.appendChild(userCssEl); }
+  userCssEl.textContent = prefs.userCss || '';
+}
 function applyPrefs() {
   const r = document.documentElement.style;
   r.setProperty('--read-width', prefs.readWidth + 'px');
   r.setProperty('--read-size', prefs.readSize + 'px');
   r.setProperty('--read-lh', String(prefs.readLineHeight));
   r.setProperty('--editor-size', prefs.editorSize + 'px');
+  applyUserCss();
 }
 function syncPrefsUI() {
   $('prefReadWidth').value = prefs.readWidth; $('prefReadWidthVal').textContent = prefs.readWidth + 'px';
   $('prefReadSize').value = prefs.readSize; $('prefReadSizeVal').textContent = prefs.readSize + 'px';
   $('prefLineHeight').value = prefs.readLineHeight; $('prefLineHeightVal').textContent = prefs.readLineHeight;
   $('prefEditorSize').value = prefs.editorSize; $('prefEditorSizeVal').textContent = prefs.editorSize + 'px';
+  $('prefUserCss').value = prefs.userCss || '';
   $('prefAutosave').checked = autosaveEnabled;
 }
 function openPrefs() { syncPrefsUI(); prefsOverlay.hidden = false; }
@@ -1417,6 +1424,7 @@ bindPref('prefReadWidth', 'readWidth');
 bindPref('prefReadSize', 'readSize');
 bindPref('prefLineHeight', 'readLineHeight');
 bindPref('prefEditorSize', 'editorSize');
+$('prefUserCss').addEventListener('input', (e) => { prefs.userCss = e.target.value; applyUserCss(); pushSession(); });
 $('prefAutosave').addEventListener('change', (e) => { autosaveEnabled = e.target.checked; if (autosaveEnabled) scheduleAutosave(); pushSession(); });
 $('prefReset').addEventListener('click', () => { prefs = { ...PREFS_DEFAULT }; applyPrefs(); syncPrefsUI(); pushSession(); });
 prefsOverlay.addEventListener('mousedown', (e) => { if (e.target === prefsOverlay) closePrefs(); });
