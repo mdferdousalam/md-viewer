@@ -196,8 +196,8 @@ function initMermaid(theme) {
 }
 
 let mermaidSeq = 0;
-async function renderMermaid() {
-  const blocks = preview.querySelectorAll('pre code.language-mermaid');
+async function renderMermaid(root = preview) {
+  const blocks = root.querySelectorAll('pre code.language-mermaid');
   if (!blocks.length) return;
   const seq = ++mermaidSeq;
   for (const el of blocks) {
@@ -463,6 +463,52 @@ function toggleZen(force) {
   state.zen = force !== undefined ? force : !state.zen;
   app.classList.toggle('zen', state.zen);
 }
+
+// ============================================================
+// Presentation / slideshow mode
+// ============================================================
+// Split the active document on `---` slide separators (Marp-style) and step
+// through the slides fullscreen. Each slide reuses the same marked pipeline as
+// the preview, so math, code highlighting, callouts, and Mermaid all render.
+const slideshowEl = $('slideshow');
+const slideEl = $('slide');
+const slideCounterEl = $('slideCounter');
+let slides = [];
+let slideIndex = 0;
+
+function isPresenting() { return !slideshowEl.hidden; }
+
+function startPresentation() {
+  // Drop front-matter so it doesn't become a blank leading slide, then split on
+  // horizontal-rule lines. Keep only slides with actual content.
+  const { body } = splitFrontMatter(editor.value || '');
+  slides = body.split(/^[ \t]*---[ \t]*$/m).map((s) => s.trim()).filter(Boolean);
+  if (!slides.length) slides = ['']; // still present an (empty) slide rather than nothing
+  slideIndex = 0;
+  slideshowEl.hidden = false;
+  showSlide(0);
+}
+
+function endPresentation() {
+  slideshowEl.hidden = true;
+  slideEl.innerHTML = '';
+  editor.focus();
+}
+
+function showSlide(i) {
+  slideIndex = Math.max(0, Math.min(i, slides.length - 1));
+  slideEl.innerHTML = renderMarkdown(slides[slideIndex]);
+  slideEl.querySelectorAll('a[href]').forEach((a) => {
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+  });
+  slideEl.scrollTop = 0;
+  slideCounterEl.textContent = `${slideIndex + 1} / ${slides.length}`;
+  renderMermaid(slideEl);
+}
+
+function nextSlide() { if (slideIndex < slides.length - 1) showSlide(slideIndex + 1); }
+function prevSlide() { if (slideIndex > 0) showSlide(slideIndex - 1); }
 
 // ============================================================
 // File operations
@@ -952,12 +998,18 @@ const API_OPS = {
     return { ok: true };
   },
 
-  setView: async ({ mode, theme, outline, zen } = {}) => {
+  setView: async ({ mode, theme, outline, zen, present, slide } = {}) => {
     if (mode) setViewMode(mode);
     if (theme) setTheme(theme);
     if (outline !== undefined) toggleOutline(!!outline);
     if (zen !== undefined) toggleZen(!!zen);
-    return { ok: true, viewMode: state.viewMode, theme: state.theme };
+    if (present === true) startPresentation();
+    else if (present === false) endPresentation();
+    if (typeof slide === 'number' && isPresenting()) showSlide(slide);
+    return {
+      ok: true, viewMode: state.viewMode, theme: state.theme,
+      presenting: isPresenting(), slide: isPresenting() ? slideIndex : null, slideCount: isPresenting() ? slides.length : 0,
+    };
   },
 
   save: async ({ path } = {}) => {
@@ -1252,6 +1304,7 @@ const COMMANDS = [
   { id: 'vl', label: 'View: Live preview (Typora-style)', key: '⌘4', icon: 'i-live', run: () => setViewMode('live') },
   { id: 'zen', label: 'Toggle Focus Mode', key: '⌘⇧F', icon: 'i-zen', run: () => toggleZen() },
   { id: 'theme', label: 'Cycle Theme (Dark / Light / Sepia)', key: '⌘⇧L', icon: 'i-sun', run: cycleTheme },
+  { id: 'present', label: 'Start Presentation', key: '⌘⇧Enter', icon: 'i-eye', run: startPresentation },
   { id: 'prefs', label: 'Preferences…', key: '⌘,', icon: 'i-outline', run: openPrefs },
   { id: 'help', label: 'Keyboard Shortcuts', key: '?', icon: 'i-help', run: () => toggleHelp(true) },
 ];
@@ -1375,7 +1428,9 @@ const SHORTCUTS = [
   ['Bold', '⌘B'], ['Italic', '⌘I'], ['Insert link', '⌘K'],
   ['Find & replace', '⌘F'], ['Quick open / Command palette', '⌘P / ⌘⇧P'],
   ['Editor / Split / Preview / Live', '⌘1 / ⌘2 / ⌘3 / ⌘4'], ['Toggle outline', '⌘\\'],
-  ['Focus mode', '⌘⇧F'], ['Cycle theme', '⌘⇧L'], ['Shortcuts', '?'],
+  ['Focus mode', '⌘⇧F'], ['Cycle theme', '⌘⇧L'],
+  ['Start presentation', '⌘⇧⏎'], ['Slides: next / prev / exit', '→ / ← / Esc'],
+  ['Shortcuts', '?'],
 ];
 function buildHelp() {
   $('helpGrid').innerHTML = SHORTCUTS.map(([l, k]) =>
@@ -1429,6 +1484,11 @@ $('prefAutosave').addEventListener('change', (e) => { autosaveEnabled = e.target
 $('prefReset').addEventListener('click', () => { prefs = { ...PREFS_DEFAULT }; applyPrefs(); syncPrefsUI(); pushSession(); });
 prefsOverlay.addEventListener('mousedown', (e) => { if (e.target === prefsOverlay) closePrefs(); });
 document.querySelectorAll('[data-action="prefs-close"]').forEach((b) => b.addEventListener('click', closePrefs));
+
+// Presentation controls
+$('slidePrev').addEventListener('click', prevSlide);
+$('slideNext').addEventListener('click', nextSlide);
+$('slideExit').addEventListener('click', endPresentation);
 
 // ============================================================
 // Toast
@@ -1501,6 +1561,21 @@ window.api.onMenuExportPdf(exportPdf);
 // Global keybindings
 window.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
+  // Presentation mode captures navigation keys before anything else.
+  if (isPresenting()) {
+    switch (e.key) {
+      case 'ArrowRight': case 'ArrowDown': case 'PageDown': case ' ':
+        e.preventDefault(); nextSlide(); return;
+      case 'ArrowLeft': case 'ArrowUp': case 'PageUp':
+        e.preventDefault(); prevSlide(); return;
+      case 'Home': e.preventDefault(); showSlide(0); return;
+      case 'End': e.preventDefault(); showSlide(slides.length - 1); return;
+      case 'Escape': e.preventDefault(); endPresentation(); return;
+      default: return; // ignore other keys while presenting (no app shortcuts fire)
+    }
+  }
+  // ⌘⇧Enter starts a presentation from anywhere.
+  if (mod && e.shiftKey && (e.key === 'Enter' || e.key === 'Return')) { e.preventDefault(); startPresentation(); return; }
   // ? opens help when not typing
   if (e.key === '?' && !mod && !isTyping(e.target)) { e.preventDefault(); toggleHelp(true); return; }
   if (e.key === 'Escape') {

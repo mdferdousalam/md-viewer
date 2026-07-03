@@ -658,3 +658,43 @@ html, body {
   background: var(--scrollbar); border-radius: 6px; border: 3px solid transparent; background-clip: padding-box;
 }
 #editor .cm-scroller::-webkit-scrollbar-thumb:hover, #preview::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* ============================================================
+   Presentation / slideshow mode
+   ============================================================ */
+.slideshow {
+  position: fixed; inset: 0; z-index: 200;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 5vh 6vw;
+}
+.slideshow[hidden] { display: none; }
+.slideshow .slide {
+  width: 100%; max-width: 1000px; max-height: 90vh; overflow-y: auto;
+  margin: 0; padding: 0;
+  font-size: calc(var(--read-size, 15.5px) * 1.35);
+}
+/* Center the first slide's title-ish content vertically for a cover feel. */
+.slideshow .slide > :first-child { margin-top: 0; }
+.slide-nav {
+  position: fixed; bottom: 3vh; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 999px; padding: 5px 8px; box-shadow: var(--shadow);
+  opacity: 0.35; transition: opacity var(--transition);
+}
+.slide-nav:hover { opacity: 1; }
+.slide-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: transparent; border: none; color: var(--text-2); cursor: pointer;
+  transition: background var(--transition), color var(--transition);
+}
+.slide-btn:hover { background: var(--surface-hover); color: var(--text); }
+.slide-btn .ic { width: 17px; height: 17px; }
+.slide-exit { color: var(--text-dim); }
+.slide-counter {
+  min-width: 3.5ch; text-align: center; padding: 0 6px;
+  font: 500 12px/1 var(--font-ui); color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
