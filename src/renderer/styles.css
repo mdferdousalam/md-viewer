@@ -392,6 +392,17 @@ html, body {
 .markdown-body .fm-key { color: var(--text-dim); min-width: 90px; font-weight: 600; }
 .markdown-body .fm-val { color: var(--text-2); }
 
+/* Footnotes */
+.markdown-body .footnote-ref { font-size: 0.8em; font-weight: 600; }
+.markdown-body .footnotes {
+  margin-top: 2.4em; padding-top: 1em; border-top: 1px solid var(--border);
+  font-size: 0.88em; color: var(--text-2);
+}
+.markdown-body .footnotes ol { padding-left: 1.4em; }
+.markdown-body .footnotes li { margin: 0.35em 0; }
+.markdown-body .footnotes li:target { background: var(--accent-soft); border-radius: 4px; }
+.markdown-body .footnote-backref { text-decoration: none; margin-left: 0.4em; border: none; }
+
 .markdown-body code {
   font-family: var(--font-mono); font-size: 0.86em;
   background: var(--code-inline); padding: 0.18em 0.42em; border-radius: 5px;
