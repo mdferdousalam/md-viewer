@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('api', {
   pickFolder: () => ipcRenderer.invoke('fs:pick-folder'),
   listDir: (dirPath) => ipcRenderer.invoke('fs:list-dir', dirPath),
   walkWorkspace: (root) => ipcRenderer.invoke('fs:walk-markdown', root),
+  createNote: (root, name) => ipcRenderer.invoke('fs:create-note', { root, name }),
+  backlinks: (root, targetPath) => ipcRenderer.invoke('fs:backlinks', { root, targetPath }),
   watchFolder: (root) => ipcRenderer.send('workspace:watch', root),
   confirmDiscard: () => ipcRenderer.invoke('dialog:confirm-discard'),
   confirmReload: () => ipcRenderer.invoke('dialog:confirm-reload'),

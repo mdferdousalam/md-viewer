@@ -561,6 +561,74 @@ ipcMain.handle('fs:walk-markdown', (_e, root) => {
   return { files: out };
 });
 
+// Create (or resolve) a note under the workspace root, for wiki-link
+// follow-through on `[[Unresolved Note]]`. Joins paths on the main side so it
+// stays correct cross-platform; never overwrites an existing file.
+ipcMain.handle('fs:create-note', (_e, { root, name } = {}) => {
+  try {
+    if (!root || !name) return { error: 'root and name required' };
+    let rel = String(name).replace(/[\\/]+$/, '');
+    if (!MD_RE.test(rel)) rel += '.md';
+    // Keep the note inside the workspace: reject path traversal.
+    const target = path.resolve(root, rel);
+    if (target !== root && !target.startsWith(root + path.sep)) return { error: 'note must stay inside the workspace' };
+    if (!fs.existsSync(target)) {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      const title = path.basename(target).replace(MD_RE, '');
+      fs.writeFileSync(target, `# ${title}\n`, 'utf8');
+    }
+    return { filePath: target };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Find backlinks: workspace notes whose text references the target note via a
+// `[[wiki link]]`. Matches the note's filename stem or its workspace-relative
+// path (with or without extension), case-insensitively.
+ipcMain.handle('fs:backlinks', (_e, { root, targetPath } = {}) => {
+  try {
+    if (!root || !targetPath) return { links: [] };
+    const stem = path.basename(targetPath).replace(MD_RE, '');
+    const relNoExt = path.relative(root, targetPath).replace(MD_RE, '').split(path.sep).join('/');
+    const wantStem = stem.toLowerCase();
+    const wantRel = relNoExt.toLowerCase();
+    const out = [];
+    const walk = (dir, depth) => {
+      if (depth > 8 || out.length >= 500) return;
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+      for (const ent of entries) {
+        if (ent.name.startsWith('.') || SKIP_DIR.has(ent.name)) continue;
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) { walk(full, depth + 1); continue; }
+        if (!MD_RE.test(ent.name) || full === targetPath) continue;
+        let text;
+        try { text = fs.readFileSync(full, 'utf8'); } catch (_) { continue; }
+        const re = /\[\[([^\]\n|#]+)(?:#[^\]\n|]*)?(?:\|([^\]\n]+))?\]\]/g;
+        let m, hit = null;
+        while ((m = re.exec(text))) {
+          const t = m[1].trim().toLowerCase();
+          if (t === wantStem || t === wantRel || t.replace(/^.*\//, '') === wantStem) {
+            // Capture a short surrounding snippet for context.
+            const start = Math.max(0, m.index - 40);
+            hit = text.slice(start, m.index + m[0].length + 40).replace(/\s+/g, ' ').trim();
+            break;
+          }
+        }
+        if (hit) {
+          out.push({ name: ent.name, path: full, relPath: path.relative(root, full), snippet: hit });
+          if (out.length >= 500) return;
+        }
+      }
+    };
+    walk(root, 0);
+    return { links: out };
+  } catch (err) {
+    return { error: err.message, links: [] };
+  }
+});
+
 // Watch the workspace root for structural changes so the tree can refresh.
 // `recursive` is supported on macOS/Windows only; on Linux we skip auto-watch.
 function watchFolder(win, root) {

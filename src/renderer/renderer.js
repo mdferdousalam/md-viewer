@@ -129,6 +129,26 @@ const emojiExtension = {
   }],
 };
 
+// Obsidian-style wiki links:  [[Note]]  /  [[Note|Alias]]  /  [[Note#Heading]].
+// Rendered as an anchor carrying the raw target; resolution against the open
+// workspace (and click-to-open / create-on-click) happens in the DOM layer via
+// wireWikiLinks so it can use the async file index and DOMPurify stays simple.
+const wikiLinkExtension = {
+  extensions: [{
+    name: 'wikilink',
+    level: 'inline',
+    start(src) { const i = src.indexOf('[['); return i < 0 ? undefined : i; },
+    tokenizer(src) {
+      const m = /^\[\[([^\]\n|]+?)(?:\|([^\]\n]+?))?\]\]/.exec(src);
+      if (m) return { type: 'wikilink', raw: m[0], target: m[1].trim(), alias: (m[2] || '').trim() };
+    },
+    renderer(token) {
+      const label = token.alias || token.target.replace(/#/, ' › ');
+      return `<a class="wikilink" data-wikitarget="${escapeHtml(token.target)}">${escapeHtml(label)}</a>`;
+    },
+  }],
+};
+
 const marked = new Marked(
   markedHighlight({
     langPrefix: 'hljs language-',
@@ -144,6 +164,7 @@ const marked = new Marked(
   mathExtension,
   calloutExtension,
   emojiExtension,
+  wikiLinkExtension,
   { gfm: true, breaks: false }
 );
 // Footnotes: [^1] references + [^1]: definitions, rendered as a footnotes
@@ -271,6 +292,8 @@ const readTimeEl = $('readTime');
 const cursorPosEl = $('cursorPos');
 const outlineEl = $('outline');
 const outlineList = $('outlineList');
+const backlinksEl = $('backlinks');
+const backlinksList = $('backlinksList');
 const themeToggle = $('themeToggle');
 const tabStrip = $('tabstrip');
 const fileTreeEl = $('fileTree');
@@ -313,6 +336,7 @@ function updatePreview() {
     a.setAttribute('rel', 'noopener noreferrer');
   });
   wireCheckboxes();
+  wireWikiLinks(preview);
   renderMermaid();
 }
 
@@ -394,6 +418,42 @@ function toggleOutline(force) {
   outlineEl.hidden = !state.outlineOpen;
   document.querySelector('[data-action="outline"]').classList.toggle('active', state.outlineOpen);
   if (state.outlineOpen) updateOutlineActive();
+}
+
+// ---- Backlinks (which workspace notes link here via [[…]]) ----------------
+let backlinksOpen = false;
+
+function toggleBacklinks(force) {
+  backlinksOpen = force !== undefined ? force : !backlinksOpen;
+  backlinksEl.hidden = !backlinksOpen;
+  document.querySelector('[data-action="backlinks"]').classList.toggle('active', backlinksOpen);
+  if (backlinksOpen) refreshBacklinks();
+}
+
+async function refreshBacklinks() {
+  if (!backlinksOpen) return;
+  const a = active();
+  if (!workspaceRoot || !a || !a.filePath) {
+    backlinksList.innerHTML = `<div class="outline-empty">${workspaceRoot ? 'Save this note in the folder to see backlinks' : 'Open a folder to see backlinks'}</div>`;
+    return;
+  }
+  backlinksList.innerHTML = '<div class="outline-empty">Searching…</div>';
+  const res = await window.api.backlinks?.(workspaceRoot, a.filePath);
+  // Guard against a slower response arriving after the user switched notes.
+  if (!backlinksOpen || active() !== a) return;
+  const links = (res && res.links) || [];
+  backlinksList.innerHTML = '';
+  if (!links.length) { backlinksList.innerHTML = '<div class="outline-empty">No backlinks yet</div>'; return; }
+  links.forEach((l) => {
+    const item = document.createElement('button');
+    item.className = 'outline-item backlink-item';
+    item.innerHTML = '<span class="backlink-name"></span><span class="backlink-snip"></span>';
+    item.querySelector('.backlink-name').textContent = l.name.replace(/\.[^.]+$/, '');
+    item.querySelector('.backlink-snip').textContent = l.snippet || l.relPath;
+    item.title = l.relPath;
+    item.addEventListener('click', () => openWorkspaceFile(l.path));
+    backlinksList.appendChild(item);
+  });
 }
 
 // ============================================================
@@ -502,6 +562,7 @@ function showSlide(i) {
     a.setAttribute('target', '_blank');
     a.setAttribute('rel', 'noopener noreferrer');
   });
+  wireWikiLinks(slideEl);
   slideEl.scrollTop = 0;
   slideCounterEl.textContent = `${slideIndex + 1} / ${slides.length}`;
   renderMermaid(slideEl);
@@ -557,6 +618,7 @@ function activateTab(id, force) {
   window.api.emitEvent?.('opened', { filePath: t.filePath });
   renderTabs();
   updateFileTreeActive();
+  refreshBacklinks();
   pushSession();
   scheduleRender();
   editor.focus();
@@ -667,7 +729,56 @@ function setWorkspaceRoot(root) {
   window.api.watchFolder?.(root);
   toggleFileTree(true);
   renderFileTree();
+  refreshWikiIndex();
   pushSession();
+}
+
+// ---- Wiki links ([[Note]]) -----------------------------------------------
+// A flat index of workspace markdown files powers link resolution, autocomplete,
+// and unresolved-link creation. Refreshed on workspace open and on fs changes.
+let wikiIndex = []; // [{ name, relPath, path, stem }]
+
+async function refreshWikiIndex() {
+  if (!workspaceRoot) { wikiIndex = []; return; }
+  const res = await window.api.walkWorkspace?.(workspaceRoot);
+  wikiIndex = ((res && res.files) || []).map((f) => ({ ...f, stem: f.name.replace(/\.[^.]+$/, '') }));
+  scheduleRender();            // re-resolve any [[links]] now that we know the files
+  if (backlinksOpen) refreshBacklinks();
+}
+
+// Resolve a wiki target to an indexed file, or null. Tries, in order: exact
+// relPath (±extension), case-insensitive relPath stem, then filename stem.
+function resolveWiki(target) {
+  const clean = String(target || '').replace(/#.*$/, '').trim();
+  if (!clean || !wikiIndex.length) return null;
+  const noExt = (s) => s.replace(/\.[^.]+$/, '');
+  const rel = clean.split(/[\\/]/).join('/');
+  const lc = rel.toLowerCase();
+  return wikiIndex.find((f) => f.relPath === clean || noExt(f.relPath) === clean)
+    || wikiIndex.find((f) => noExt(f.relPath).split(/[\\/]/).join('/').toLowerCase() === lc)
+    || wikiIndex.find((f) => f.stem.toLowerCase() === lc)
+    || null;
+}
+
+// After a render, mark each [[link]] as resolved/unresolved for styling + title.
+function wireWikiLinks(root) {
+  root.querySelectorAll('a.wikilink').forEach((a) => {
+    const hit = resolveWiki(a.dataset.wikitarget);
+    if (hit) { a.dataset.wikipath = hit.path; a.title = hit.relPath; a.classList.remove('wikilink-unresolved'); }
+    else { delete a.dataset.wikipath; a.title = `Create note: ${a.dataset.wikitarget}`; a.classList.add('wikilink-unresolved'); }
+  });
+}
+
+// Click a wiki link: open the resolved note, or create it under the workspace.
+async function openWikiLink(target, path) {
+  if (path) { openWorkspaceFile(path); return; }
+  if (!workspaceRoot) { flash('Open a folder to create linked notes'); return; }
+  const clean = String(target || '').replace(/#.*$/, '').trim();
+  if (!clean) return;
+  const res = await window.api.createNote?.(workspaceRoot, clean);
+  if (!res || res.error) { flash(res && res.error ? res.error : 'Could not create note'); return; }
+  await refreshWikiIndex();
+  openWorkspaceFile(res.filePath);
 }
 
 function toggleFileTree(force) {
@@ -998,10 +1109,11 @@ const API_OPS = {
     return { ok: true };
   },
 
-  setView: async ({ mode, theme, outline, zen, present, slide } = {}) => {
+  setView: async ({ mode, theme, outline, zen, present, slide, backlinks } = {}) => {
     if (mode) setViewMode(mode);
     if (theme) setTheme(theme);
     if (outline !== undefined) toggleOutline(!!outline);
+    if (backlinks !== undefined) toggleBacklinks(!!backlinks);
     if (zen !== undefined) toggleZen(!!zen);
     if (present === true) startPresentation();
     else if (present === false) endPresentation();
@@ -1130,6 +1242,18 @@ function onEditorScroll() {
   requestAnimationFrame(() => (syncing = false));
 }
 preview.addEventListener('scroll', () => { updateOutlineActive(); });
+
+// Delegated wiki-link navigation for both the preview and slideshow. Clicking a
+// [[link]] opens (or creates) the target note; from a slide it exits first.
+function onWikiClick(e) {
+  const a = e.target.closest('a.wikilink');
+  if (!a) return;
+  e.preventDefault();
+  if (isPresenting()) endPresentation();
+  openWikiLink(a.dataset.wikitarget, a.dataset.wikipath);
+}
+preview.addEventListener('click', onWikiClick);
+slideEl.addEventListener('click', onWikiClick);
 
 // Divider drag
 let dragging = false;
@@ -1298,6 +1422,7 @@ const COMMANDS = [
   { id: 'autosave', label: 'Toggle Autosave (on/off)', icon: 'i-save', run: toggleAutosave },
   { id: 'find', label: 'Find & Replace', key: '⌘F', icon: 'i-search', run: openFind },
   { id: 'outline', label: 'Toggle Outline', icon: 'i-outline', run: () => toggleOutline() },
+  { id: 'backlinks', label: 'Toggle Backlinks', icon: 'i-link', run: () => toggleBacklinks() },
   { id: 've', label: 'View: Editor only', key: '⌘1', icon: 'i-edit', run: () => setViewMode('editor') },
   { id: 'vs', label: 'View: Split', key: '⌘2', icon: 'i-split', run: () => setViewMode('split') },
   { id: 'vp', label: 'View: Preview only', key: '⌘3', icon: 'i-eye', run: () => setViewMode('preview') },
@@ -1518,6 +1643,7 @@ $('toolbar').addEventListener('click', (e) => {
     case 'save': return doSave();
     case 'files': return toggleFileTree();
     case 'outline': return toggleOutline();
+    case 'backlinks': return toggleBacklinks();
     case 'palette': return openPalette();
     case 'zen': return toggleZen();
     case 'theme': return cycleTheme();
@@ -1526,6 +1652,9 @@ $('toolbar').addEventListener('click', (e) => {
 });
 document.querySelectorAll('[data-action="outline"]').forEach((b) => b.addEventListener('click', (e) => {
   if (e.currentTarget.closest('.outline-head')) toggleOutline(false);
+}));
+document.querySelectorAll('[data-action="backlinks"]').forEach((b) => b.addEventListener('click', (e) => {
+  if (e.currentTarget.closest('.outline-head')) toggleBacklinks(false);
 }));
 document.querySelectorAll('[data-action="help"]').forEach((b) => b.addEventListener('click', (e) => {
   if (e.currentTarget.closest('.help-head')) toggleHelp(false);
@@ -1544,7 +1673,7 @@ editor.view.contentDOM.addEventListener('paste', onEditorPaste, true);
 window.api.onFileOpened(({ filePath, content }) => openInNewTab(filePath, content));
 window.api.onExternalChange(onExternalChange);
 window.api.onSessionRestore?.(onSessionRestore);
-window.api.onWorkspaceChanged?.(() => { if (workspaceRoot) renderFileTree(); });
+window.api.onWorkspaceChanged?.(() => { if (workspaceRoot) { renderFileTree(); refreshWikiIndex(); } });
 window.api.onMenuNew(doNew);
 window.api.onMenuSave(() => doSave(false));
 window.api.onMenuSaveAs(() => doSave(true));
