@@ -9,7 +9,7 @@
 // `setRangeText`, `setSelectionRange`, `focus`, and `scrollTop/scrollHeight/
 // clientHeight`. This keeps the migration surgical — no main/preload/MCP changes.
 
-import { EditorState, Compartment, RangeSetBuilder } from '@codemirror/state';
+import { EditorState, Compartment } from '@codemirror/state';
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
   drawSelection, dropCursor, rectangularSelection, crosshairCursor, placeholder as cmPlaceholder,
@@ -76,35 +76,47 @@ const baseTheme = EditorView.theme({
 // the caret is on, so prose reads as rendered while the line you're editing
 // shows its raw syntax. The emphasis styling itself comes from mdHighlight.
 const CONCEAL_MARKS = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark']);
+const HEADING_NODE = /^ATXHeading(\d)$/;
 const hideMark = Decoration.replace({});
+const headingLine = {};
+for (let i = 1; i <= 6; i++) headingLine[i] = Decoration.line({ class: `cm-live-h${i}` });
 
-function buildConceal(view) {
+function buildLive(view) {
   const sel = view.state.selection.main;
   const curFrom = view.state.doc.lineAt(sel.from).from;
   const curTo = view.state.doc.lineAt(sel.to).to;
-  const marks = [];
+  const onCaretLine = (f, tt) => tt >= curFrom && f <= curTo;
+  const decos = [];
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(view.state).iterate({
       from, to,
       enter(node) {
-        if (!CONCEAL_MARKS.has(node.name) || node.from === node.to) return;
-        if (node.to >= curFrom && node.from <= curTo) return; // reveal the caret line
-        marks.push([node.from, node.to]);
+        const hm = HEADING_NODE.exec(node.name);
+        if (hm) {
+          // Size the whole heading line (even while editing it).
+          decos.push(headingLine[hm[1]].range(view.state.doc.lineAt(node.from).from));
+          return;
+        }
+        if (node.name === 'HeaderMark') {
+          if (onCaretLine(node.from, node.to)) return;
+          const after = view.state.doc.sliceString(node.to, node.to + 1);
+          decos.push(hideMark.range(node.from, node.to + (after === ' ' ? 1 : 0)));
+          return;
+        }
+        if (CONCEAL_MARKS.has(node.name) && node.from !== node.to && !onCaretLine(node.from, node.to)) {
+          decos.push(hideMark.range(node.from, node.to));
+        }
       },
     });
   }
-  marks.sort((a, b) => a[0] - b[0]);
-  const builder = new RangeSetBuilder();
-  let last = -1;
-  for (const [f, tt] of marks) { if (f < last) continue; builder.add(f, tt, hideMark); last = tt; }
-  return builder.finish();
+  return Decoration.set(decos, true);
 }
 
 const livePreviewPlugin = ViewPlugin.fromClass(
   class {
-    constructor(view) { this.decorations = buildConceal(view); }
+    constructor(view) { this.decorations = buildLive(view); }
     update(u) {
-      if (u.docChanged || u.selectionSet || u.viewportChanged) this.decorations = buildConceal(u.view);
+      if (u.docChanged || u.selectionSet || u.viewportChanged) this.decorations = buildLive(u.view);
     }
   },
   { decorations: (v) => v.decorations }
