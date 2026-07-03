@@ -61,6 +61,73 @@ const mathExtension = {
   ],
 };
 
+// Obsidian-style callouts:  > [!note] Optional title  /  > body…
+// Parsed as a block so line structure survives (a plain blockquote with
+// breaks:false would merge the title into the body).
+const calloutExtension = {
+  extensions: [{
+    name: 'callout',
+    level: 'block',
+    start(src) { const i = src.indexOf('> [!'); return i < 0 ? undefined : i; },
+    tokenizer(src) {
+      const m = /^> ?\[!(\w+)\]([+-]?)([^\n]*)\n?((?:>[^\n]*(?:\n|$))*)/.exec(src);
+      if (!m) return;
+      const body = m[4].replace(/^> ?/gm, '');
+      return {
+        type: 'callout',
+        raw: m[0],
+        variant: m[1].toLowerCase(),
+        title: m[3].trim(),
+        tokens: this.lexer.blockTokens(body),
+      };
+    },
+    renderer(token) {
+      const body = this.parser.parse(token.tokens);
+      const label = token.title || (token.variant.charAt(0).toUpperCase() + token.variant.slice(1));
+      return `<div class="callout callout-${token.variant}"><div class="callout-title">${escapeHtml(label)}</div><div class="callout-body">${body}</div></div>\n`;
+    },
+  }],
+};
+
+// :shortcode: emoji for a curated common set (unknown codes are left as text).
+const EMOJI = {
+  smile: '😄', smiley: '😃', grin: '😁', laughing: '😆', joy: '😂', rofl: '🤣',
+  wink: '😉', blush: '😊', heart_eyes: '😍', kissing_heart: '😘', thinking: '🤔',
+  neutral_face: '😐', unamused: '😒', sweat_smile: '😅', sob: '😭', cry: '😢',
+  angry: '😠', rage: '😡', disappointed: '😞', sleeping: '😴', mask: '😷',
+  sunglasses: '😎', confused: '😕', worried: '😟', scream: '😱', flushed: '😳',
+  innocent: '😇', nerd: '🤓', clown: '🤡', cowboy: '🤠', shrug: '🤷', facepalm: '🤦',
+  thumbsup: '👍', '+1': '👍', thumbsdown: '👎', '-1': '👎', ok_hand: '👌', fist: '✊',
+  punch: '👊', wave: '👋', raised_hands: '🙌', pray: '🙏', clap: '👏', muscle: '💪',
+  point_up: '👆', point_down: '👇', point_left: '👈', point_right: '👉', v: '✌️',
+  eyes: '👀', brain: '🧠', heart: '❤️', broken_heart: '💔', two_hearts: '💕',
+  sparkling_heart: '💖', blue_heart: '💙', green_heart: '💚', yellow_heart: '💛',
+  purple_heart: '💜', fire: '🔥', star: '⭐', star2: '🌟', sparkles: '✨', zap: '⚡',
+  boom: '💥', tada: '🎉', confetti_ball: '🎊', gift: '🎁', balloon: '🎈', rocket: '🚀',
+  sunny: '☀️', cloud: '☁️', rainbow: '🌈', snowflake: '❄️', moon: '🌙', earth_americas: '🌎',
+  white_check_mark: '✅', check: '✅', heavy_check_mark: '✔️', x: '❌', warning: '⚠️',
+  question: '❓', exclamation: '❗', bulb: '💡', bell: '🔔', lock: '🔒', key: '🔑',
+  mag: '🔍', link: '🔗', pushpin: '📌', calendar: '📅', memo: '📝', pencil: '✏️',
+  book: '📖', books: '📚', email: '📧', phone: '📱', computer: '💻', gear: '⚙️',
+  wrench: '🔧', hammer: '🔨', bug: '🐛', rotating_light: '🚨', hourglass: '⏳',
+  watch: '⌚', coffee: '☕', pizza: '🍕', beer: '🍺', cake: '🎂', tada2: '🥳',
+  100: '💯', ok: '🆗', new: '🆕', up: '🆙', top: '🔝', heavy_plus_sign: '➕',
+  arrow_right: '➡️', arrow_left: '⬅️', arrow_up: '⬆️', arrow_down: '⬇️',
+  hand: '✋', raised_hand: '✋', tada3: '🎉', dart: '🎯', trophy: '🏆', medal: '🏅',
+};
+const emojiExtension = {
+  extensions: [{
+    name: 'emoji',
+    level: 'inline',
+    start(src) { const i = src.indexOf(':'); return i < 0 ? undefined : i; },
+    tokenizer(src) {
+      const m = /^:([a-z0-9_+-]+):/.exec(src);
+      if (m && EMOJI[m[1]]) return { type: 'emoji', raw: m[0], text: EMOJI[m[1]] };
+    },
+    renderer(token) { return token.text; },
+  }],
+};
+
 const marked = new Marked(
   markedHighlight({
     langPrefix: 'hljs language-',
@@ -74,11 +141,38 @@ const marked = new Marked(
   }),
   gfmHeadingId(),
   mathExtension,
+  calloutExtension,
+  emojiExtension,
   { gfm: true, breaks: false }
 );
 
+// Split a leading YAML-ish front-matter block (--- … ---) off the top and
+// render its key/value pairs as a small metadata card above the document.
+function splitFrontMatter(text) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text);
+  if (!m) return { fm: null, body: text };
+  return { fm: m[1], body: text.slice(m[0].length) };
+}
+
+function frontMatterHtml(fm) {
+  const rows = fm.split('\n').map((line) => {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) return null;
+    const i = line.indexOf(':');
+    if (i < 0) return null;
+    const key = line.slice(0, i).trim();
+    const val = line.slice(i + 1).trim().replace(/^["']|["']$/g, '');
+    return key ? [key, val] : null;
+  }).filter(Boolean);
+  if (!rows.length) return '';
+  return '<div class="frontmatter">' + rows.map(([k, v]) =>
+    `<div class="fm-row"><span class="fm-key">${escapeHtml(k)}</span><span class="fm-val">${escapeHtml(v)}</span></div>`
+  ).join('') + '</div>';
+}
+
 function renderMarkdown(text) {
-  const raw = marked.parse(text || '');
+  const { fm, body } = splitFrontMatter(text || '');
+  const raw = (fm != null ? frontMatterHtml(fm) : '') + marked.parse(body);
   return DOMPurify.sanitize(raw, {
     ADD_ATTR: ['target', 'rel', 'align', 'aria-hidden', 'style'],
     ADD_TAGS: ['input', 'svg', 'path', 'g', 'line', 'rect', 'circle', 'text', 'span'],
