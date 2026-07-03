@@ -154,6 +154,9 @@ export function createEditor(opts) {
       bracketMatching(),
       foldGutter(),
       EditorView.lineWrapping,
+      // Let the OS spellchecker underline prose; suggestions come from the
+      // native context menu wired in the main process.
+      EditorView.contentAttributes.of({ spellcheck: 'true', autocapitalize: 'off', autocorrect: 'off' }),
       markdown({ base: markdownLanguage }),
       syntaxHighlighting(mdHighlight),
       placeholder ? cmPlaceholder(placeholder) : [],
