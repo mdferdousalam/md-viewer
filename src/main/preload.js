@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('api', {
   onSessionRestore: (cb) => subscribe('session:restore', cb),
   onWorkspaceChanged: (cb) => subscribe('workspace:changed', cb),
   onMenuNew: (cb) => subscribe('menu:new', cb),
+  onMenuCloseTab: (cb) => subscribe('menu:close-tab', cb),
   onMenuSave: (cb) => subscribe('menu:save', cb),
   onMenuSaveAs: (cb) => subscribe('menu:save-as', cb),
   onMenuExportHtml: (cb) => subscribe('menu:export-html', cb),

@@ -244,7 +244,7 @@ async function renderMermaid(root = preview) {
 // Workspace-level state (shared across tabs).
 const state = { viewMode: 'split', theme: 'dark', zen: false, outlineOpen: false };
 let autosaveEnabled = true; // persisted in the session; toggled from the palette
-const PREFS_DEFAULT = { readWidth: 780, readSize: 15.5, readLineHeight: 1.72, editorSize: 14.5, userCss: '' };
+const PREFS_DEFAULT = { readWidth: 780, readSize: 15.5, readLineHeight: 1.72, editorSize: 14.5, accent: '', userCss: '' };
 let prefs = { ...PREFS_DEFAULT }; // typography prefs, persisted in the session
 
 // Open documents. Only the ACTIVE tab's text lives in the CodeMirror editor;
@@ -1801,15 +1801,46 @@ function applyPrefs() {
   r.setProperty('--read-size', prefs.readSize + 'px');
   r.setProperty('--read-lh', String(prefs.readLineHeight));
   r.setProperty('--editor-size', prefs.editorSize + 'px');
+  applyAccent(prefs.accent);
   applyUserCss();
+}
+
+// Override the theme's accent (and its soft/text variants) with a user colour.
+// Empty string removes the override so the current theme's accent shows through.
+function applyAccent(hex) {
+  const r = document.documentElement.style;
+  const props = ['--accent', '--accent-2', '--accent-text', '--accent-soft', '--sel'];
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex || '').trim());
+  if (!m) { props.forEach((p) => r.removeProperty(p)); return; }
+  const hex6 = m[1];
+  const n = parseInt(hex6, 16);
+  const R = (n >> 16) & 255, G = (n >> 8) & 255, B = n & 255;
+  r.setProperty('--accent', `#${hex6}`);
+  r.setProperty('--accent-2', `#${hex6}`);
+  r.setProperty('--accent-text', `#${hex6}`);
+  r.setProperty('--accent-soft', `rgba(${R}, ${G}, ${B}, 0.16)`);
+  r.setProperty('--sel', `rgba(${R}, ${G}, ${B}, 0.28)`);
 }
 function syncPrefsUI() {
   $('prefReadWidth').value = prefs.readWidth; $('prefReadWidthVal').textContent = prefs.readWidth + 'px';
   $('prefReadSize').value = prefs.readSize; $('prefReadSizeVal').textContent = prefs.readSize + 'px';
   $('prefLineHeight').value = prefs.readLineHeight; $('prefLineHeightVal').textContent = prefs.readLineHeight;
   $('prefEditorSize').value = prefs.editorSize; $('prefEditorSizeVal').textContent = prefs.editorSize + 'px';
+  // Colour inputs need a concrete value; when no override is set, show the theme's
+  // current accent so the swatch reflects reality.
+  $('prefAccent').value = prefs.accent || normalizeHex(cssVar('--accent')) || '#7c9cff';
   $('prefUserCss').value = prefs.userCss || '';
   $('prefAutosave').checked = autosaveEnabled;
+}
+
+// Coerce a CSS colour value to a #rrggbb string a <input type=color> accepts.
+function normalizeHex(v) {
+  const s = String(v || '').trim();
+  let m = /^#([0-9a-fA-F]{6})$/.exec(s);
+  if (m) return '#' + m[1].toLowerCase();
+  m = /^#([0-9a-fA-F]{3})$/.exec(s);
+  if (m) return '#' + m[1].split('').map((c) => c + c).join('').toLowerCase();
+  return '';
 }
 function openPrefs() { syncPrefsUI(); prefsOverlay.hidden = false; }
 function closePrefs() { prefsOverlay.hidden = true; editor.focus(); }
@@ -1820,6 +1851,8 @@ bindPref('prefReadWidth', 'readWidth');
 bindPref('prefReadSize', 'readSize');
 bindPref('prefLineHeight', 'readLineHeight');
 bindPref('prefEditorSize', 'editorSize');
+$('prefAccent').addEventListener('input', (e) => { prefs.accent = e.target.value; applyAccent(prefs.accent); pushSession(); });
+$('prefAccentReset').addEventListener('click', () => { prefs.accent = ''; applyAccent(''); syncPrefsUI(); pushSession(); });
 $('prefUserCss').addEventListener('input', (e) => { prefs.userCss = e.target.value; applyUserCss(); pushSession(); });
 $('prefAutosave').addEventListener('change', (e) => { autosaveEnabled = e.target.checked; if (autosaveEnabled) scheduleAutosave(); pushSession(); });
 $('prefReset').addEventListener('click', () => { prefs = { ...PREFS_DEFAULT }; applyPrefs(); syncPrefsUI(); pushSession(); });
@@ -1932,6 +1965,9 @@ window.api.onMenuPalette(openPalette);
 window.api.onMenuOutline(() => toggleOutline());
 window.api.onMenuZen(() => toggleZen());
 window.api.onMenuExportPdf(exportPdf);
+// ⌘W closes the active tab; on the last tab it closes the window (honouring the
+// unsaved-changes guard in beforeunload).
+window.api.onMenuCloseTab?.(() => { if (tabs.length > 1 && activeId) closeTab(activeId); else window.close(); });
 
 // Global keybindings
 window.addEventListener('keydown', (e) => {

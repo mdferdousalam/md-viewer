@@ -324,7 +324,12 @@ function buildMenu() {
           click: () => sendToFocused('menu:export-pdf'),
         },
         { type: 'separator' },
-        isMac ? { role: 'close' } : { role: 'quit' },
+        {
+          label: 'Close Tab',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => sendToFocused('menu:close-tab'),
+        },
+        isMac ? { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' } : { role: 'quit' },
       ],
     },
     {

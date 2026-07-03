@@ -614,6 +614,8 @@ html, body {
 .pref-check { cursor: pointer; }
 .pref-check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .pref-check > span { flex: 1; }
+.pref-color { flex: 0 0 auto; width: 40px; height: 26px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: none; cursor: pointer; }
+.pref-row .text-btn { margin-left: auto; }
 .prefs .text-btn { align-self: flex-start; margin-top: 4px; }
 .pref-css { display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; color: var(--text-2); }
 .pref-css em { color: var(--text-dim); font-style: normal; font-size: 12px; }
