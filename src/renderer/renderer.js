@@ -274,6 +274,10 @@ const editor = createEditor({
   onDocChange: scheduleRender,
   onSelectionChange: updateCursor,
   onScroll: onEditorScroll,
+  // Autocomplete providers: `[[` completes workspace notes, `:code` completes
+  // emoji. The wiki getter reads the live index so it stays fresh.
+  getWikiTargets: () => wikiIndex,
+  emojiMap: EMOJI,
   keymap: [
     { key: 'Tab', run: () => { surround('  ', '', ''); return true; } },
     { key: 'Shift-Tab', run: () => { outdent(); return true; } },
