@@ -102,6 +102,24 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
+/* Keyboard focus: visible ring for keyboard users, none for mouse clicks. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tb-btn:focus-visible, .seg-btn:focus-visible, .icon-btn:focus-visible,
+.text-btn:focus-visible, .outline-item:focus-visible, .palette-item:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+button:focus:not(:focus-visible) { outline: none; }
+
+/* Respect the OS "reduce motion" setting. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 html, body {
   margin: 0;
   height: 100%;

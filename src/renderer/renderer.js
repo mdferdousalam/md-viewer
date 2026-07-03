@@ -304,6 +304,10 @@ function reportDirty() {
 
 function baseName(p) { return p ? p.split(/[\\/]/).pop() : null; }
 
+function prefersReducedMotion() {
+  try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { return false; }
+}
+
 function updateStatus() {
   const text = editor.value;
   const words = (text.trim().match(/\S+/g) || []).length;
@@ -342,7 +346,7 @@ function buildOutline() {
     item.dataset.target = h.id;
     item.addEventListener('click', () => {
       const t = preview.querySelector(`#${CSS.escape(h.id)}`);
-      if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (t) t.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'start' });
     });
     outlineList.appendChild(item);
   });
@@ -1205,6 +1209,10 @@ Happy writing! ✍️
   setTheme(saved);
   setViewMode('split');
   buildHelp();
+  // Icon-only controls get an accessible name from their tooltip text.
+  document.querySelectorAll('[data-tip]').forEach((el) => {
+    if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', el.getAttribute('data-tip'));
+  });
   loadContent(null, WELCOME);
   state.savedContent = '';
   reportDirty();
