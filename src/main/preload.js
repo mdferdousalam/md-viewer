@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('api', {
   reportDirty: (isDirty) => ipcRenderer.send('doc:dirty-state', isDirty),
   // Tell main the full set of open files to watch for external changes (one per tab).
   setWatchedPaths: (paths) => ipcRenderer.send('doc:set-watched-paths', paths),
+  // Persist the open-tabs snapshot for session restore.
+  saveSession: (snapshot) => ipcRenderer.send('session:tabs', snapshot),
 
   // Generic request bridge: main asks the renderer to run an op and awaits the
   // result. Renderer subscribes with onApiRequest and replies via sendApiResponse.
@@ -40,6 +42,7 @@ contextBridge.exposeInMainWorld('api', {
   // Events (main -> renderer). Each returns an unsubscribe fn.
   onFileOpened: (cb) => subscribe('file:opened', cb),
   onExternalChange: (cb) => subscribe('file:external-change', cb),
+  onSessionRestore: (cb) => subscribe('session:restore', cb),
   onMenuNew: (cb) => subscribe('menu:new', cb),
   onMenuSave: (cb) => subscribe('menu:save', cb),
   onMenuSaveAs: (cb) => subscribe('menu:save-as', cb),

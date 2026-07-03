@@ -293,6 +293,7 @@ function scheduleRender() {
 // burst of keystrokes yields one event). No-op unless the API server is on.
 let evtTimer;
 function emitChanged() {
+  pushSession(); // keep the session snapshot fresh (esp. unsaved buffers)
   clearTimeout(evtTimer);
   evtTimer = setTimeout(() => {
     window.api.emitEvent?.('changed', { filePath: active() && active().filePath, dirty: isDirty() });
@@ -502,6 +503,7 @@ function activateTab(id, force) {
   updateWatched();
   window.api.emitEvent?.('opened', { filePath: t.filePath });
   renderTabs();
+  pushSession();
   scheduleRender();
   editor.focus();
 }
@@ -518,7 +520,7 @@ async function closeTab(id) {
   updateWatched();
   if (!tabs.length) { openInNewTab(null, ''); return; }
   if (id === activeId) activateTab(tabs[Math.max(0, idx - 1)].id, true);
-  else renderTabs();
+  else { renderTabs(); pushSession(); }
 }
 
 // Render the tab strip (hidden when a single tab is open, for a clean look).
@@ -545,6 +547,48 @@ function renderTabs() {
   add.textContent = '+';
   add.addEventListener('click', doNew);
   tabStrip.appendChild(add);
+}
+
+// ---- Session persistence -------------------------------------------------
+// Debounced snapshot of the open tabs (saved files by path; unsaved buffers
+// inline, capped) so the workspace can be restored on next launch.
+let sessionPushTimer;
+function pushSession() {
+  clearTimeout(sessionPushTimer);
+  sessionPushTimer = setTimeout(() => {
+    const a = active();
+    if (a) a.content = editor.value; // capture the live buffer for the active tab
+    window.api.saveSession?.({
+      tabs: tabs.map((t) => (t.filePath ? { filePath: t.filePath } : { content: (t.content || '').slice(0, 200000) })),
+      activeIndex: tabs.findIndex((t) => t.id === activeId),
+    });
+  }, 500);
+}
+
+async function restoreSession(session) {
+  const built = [];
+  for (const e of session.tabs) {
+    if (e.filePath) {
+      const res = await window.api.readFile(e.filePath);
+      if (res && !res.error) built.push(makeTab(e.filePath, res.content));
+    } else if (typeof e.content === 'string') {
+      const t = makeTab(null, e.content); t.savedContent = ''; built.push(t);
+    }
+  }
+  if (!built.length) return;
+  tabs.length = 0;
+  built.forEach((t) => tabs.push(t));
+  welcomeId = null;
+  activeId = null; // force a fresh activation
+  activateTab(tabs[Math.min(Math.max(0, session.activeIndex | 0), tabs.length - 1)].id, true);
+}
+
+async function onSessionRestore({ session, openAfter }) {
+  if (session) await restoreSession(session);
+  if (openAfter) {
+    const res = await window.api.readFile(openAfter);
+    if (res && !res.error) openInNewTab(res.filePath, res.content);
+  }
 }
 
 // A program/agent (or another editor) rewrote the open file on disk.
@@ -1207,6 +1251,7 @@ editor.view.contentDOM.addEventListener('paste', onEditorPaste, true);
 
 window.api.onFileOpened(({ filePath, content }) => openInNewTab(filePath, content));
 window.api.onExternalChange(onExternalChange);
+window.api.onSessionRestore?.(onSessionRestore);
 window.api.onMenuNew(doNew);
 window.api.onMenuSave(() => doSave(false));
 window.api.onMenuSaveAs(() => doSave(true));

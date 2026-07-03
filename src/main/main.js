@@ -19,10 +19,11 @@ let mainWindow = null;
 /** Local control-API server handle (only when launched with --serve / MDV_API). */
 let apiServer = null;
 
-function createWindow() {
+function createWindow(bounds) {
   const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    ...(bounds && Number.isFinite(bounds.width)
+      ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height }
+      : { width: 1200, height: 800 }),
     minWidth: 640,
     minHeight: 480,
     title: 'Markdown Viewer',
@@ -38,11 +39,21 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   win.webContents.on('did-finish-load', () => {
-    if (pendingOpenPath) {
-      openPathInWindow(win, pendingOpenPath);
+    // Restore the previous session's tabs and/or open a launch file — sent as
+    // one ordered message so a launch file opens on top of the restored tabs
+    // (avoids a race between async restore and the file open).
+    const session = readSession();
+    const restore = session && session.tabs && session.tabs.length ? session : null;
+    if (restore || pendingOpenPath) {
+      if (pendingOpenPath) app.addRecentDocument(pendingOpenPath);
+      win.webContents.send('session:restore', { session: restore, openAfter: pendingOpenPath || null });
       pendingOpenPath = null;
     }
   });
+
+  win.on('resize', scheduleSessionWrite);
+  win.on('move', scheduleSessionWrite);
+  win.on('close', persistSession);
 
   // Open external links in the user's browser, never inside the app.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -60,6 +71,30 @@ function createWindow() {
 function readFileSafe(filePath) {
   const content = fs.readFileSync(filePath, 'utf8');
   return { filePath, content };
+}
+
+// ---- Session persistence (reopen tabs + window bounds on relaunch) -------
+// Stored as a single JSON file in userData (same pattern as api.json). The
+// renderer owns the tab list; the main process owns the window bounds.
+const sessionFile = () => path.join(app.getPath('userData'), 'session.json');
+let rendererTabs = null; // latest {tabs, activeIndex} snapshot from the renderer
+let sessionTimer = null;
+
+function readSession() {
+  try { return JSON.parse(fs.readFileSync(sessionFile(), 'utf8')); } catch (_) { return null; }
+}
+function persistSession() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const data = { windowBounds: mainWindow.getBounds(), ...(rendererTabs || {}) };
+  try {
+    const tmp = sessionFile() + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(data));
+    fs.renameSync(tmp, sessionFile());
+  } catch (_) { /* best-effort */ }
+}
+function scheduleSessionWrite() {
+  clearTimeout(sessionTimer);
+  sessionTimer = setTimeout(persistSession, 400);
 }
 
 function openPathInWindow(win, filePath) {
@@ -452,6 +487,9 @@ ipcMain.on('doc:set-watched-paths', (e, paths) => {
   if (win) setWatchedPaths(win, paths);
 });
 
+// Renderer pushes its tab snapshot; merged with window bounds and persisted.
+ipcMain.on('session:tabs', (_e, snapshot) => { rendererTabs = snapshot; scheduleSessionWrite(); });
+
 // Asked when the file changed on disk while the user has unsaved edits.
 ipcMain.handle('dialog:confirm-reload', async (e) => {
   const win = BrowserWindow.fromWebContents(e.sender);
@@ -690,14 +728,14 @@ if (cli && cli.command === 'mcp') {
       if (argPath) pendingOpenPath = argPath;
 
       buildMenu();
-      mainWindow = createWindow();
+      mainWindow = createWindow((readSession() || {}).windowBounds);
       setupAutoUpdate();
 
       startServer(serveConfig(process.argv));
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-          mainWindow = createWindow();
+          mainWindow = createWindow((readSession() || {}).windowBounds);
         }
       });
     });
