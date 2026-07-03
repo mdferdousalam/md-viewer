@@ -91,6 +91,9 @@ function startApiServer(ctx) {
       if (m === 'GET' && p === '/outline') {
         return sendJson(res, 200, { outline: (await req2('getDocument')).outline });
       }
+      if (m === 'GET' && p === '/tabs') {
+        return sendJson(res, 200, await req2('listTabs'));
+      }
       if (m === 'GET' && p === '/screenshot') {
         const img = await win.webContents.capturePage();
         const png = img.toPNG();
@@ -118,6 +121,12 @@ function startApiServer(ctx) {
       }
       if (m === 'POST' && p === '/view') {
         return sendJson(res, 200, await req2('setView', await readBody(req)));
+      }
+      if (m === 'POST' && p === '/tabs/activate') {
+        return sendJson(res, 200, await req2('activateTabRef', await readBody(req)));
+      }
+      if (m === 'POST' && p === '/tabs/close') {
+        return sendJson(res, 200, await req2('closeTabRef', await readBody(req)));
       }
       if (m === 'POST' && p === '/save') {
         return sendJson(res, 200, await req2('save', await readBody(req)));
