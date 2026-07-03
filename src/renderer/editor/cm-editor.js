@@ -16,6 +16,7 @@ import {
   ViewPlugin, Decoration,
 } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import {
   syntaxHighlighting, HighlightStyle, indentOnInput, bracketMatching, foldGutter, foldKeymap,
@@ -69,6 +70,16 @@ const baseTheme = EditorView.theme({
     backgroundColor: 'var(--accent-soft)', outline: 'none', color: 'inherit',
   },
   '.cm-placeholder': { color: 'var(--text-dim)' },
+  // Autocomplete popup, themed with the app tokens.
+  '.cm-tooltip.cm-tooltip-autocomplete': {
+    border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+    background: 'var(--surface)', boxShadow: 'var(--shadow)', overflow: 'hidden',
+  },
+  '.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-ui)', fontSize: '13px', maxHeight: '16em' },
+  '.cm-tooltip-autocomplete > ul > li': { padding: '4px 10px', color: 'var(--text-2)' },
+  '.cm-tooltip-autocomplete > ul > li[aria-selected]': { background: 'var(--accent-soft)', color: 'var(--text)' },
+  '.cm-completionLabel': { color: 'inherit' },
+  '.cm-completionDetail': { color: 'var(--text-dim)', fontStyle: 'normal', marginLeft: '8px', fontSize: '12px' },
 });
 
 // ---- Live-preview mode (Typora-style) ----------------------------------
@@ -122,12 +133,65 @@ const livePreviewPlugin = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations }
 );
 
+// ---- Autocomplete --------------------------------------------------------
+// Completion sources are data-driven: the renderer passes plain providers
+// (a workspace-note list getter and the emoji map) so all CM6 autocomplete
+// wiring stays here and the renderer stays framework-agnostic.
+
+// `[[` → workspace note names. Accepting a note inserts its stem and the
+// closing `]]` (unless the user already typed it), leaving the caret after.
+function wikiCompletionSource(getWikiTargets) {
+  return (context) => {
+    const before = context.matchBefore(/\[\[[^\]\n|#]*$/);
+    if (!before) return null;
+    const targets = getWikiTargets ? getWikiTargets() : [];
+    if (!targets.length) return null;
+    const options = targets.map((t) => ({
+      label: t.stem || t.name,
+      detail: t.relPath && t.relPath !== (t.stem || t.name) + '.md' ? t.relPath : undefined,
+      type: 'class',
+      apply: (view, completion, from, to) => {
+        const after = view.state.sliceDoc(to, to + 2);
+        const insert = completion.label + (after === ']]' ? '' : ']]');
+        view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length } });
+      },
+    }));
+    return { from: before.from + 2, options, validFor: /^[^\]\n|#]*$/ };
+  };
+}
+
+// `:shortcode` → emoji. Requires at least one character after the colon so it
+// doesn't fire on every `word:` in prose.
+function emojiCompletionSource(emojiMap) {
+  const keys = Object.keys(emojiMap || {});
+  return (context) => {
+    const before = context.matchBefore(/:[a-z0-9_+-]+$/);
+    if (!before) return null;
+    const typed = before.text.slice(1).toLowerCase();
+    const options = keys.filter((k) => k.includes(typed)).slice(0, 60).map((k) => ({
+      label: `:${k}:`, detail: emojiMap[k], type: 'text',
+    }));
+    if (!options.length) return null;
+    return { from: before.from, options, validFor: /^:[a-z0-9_+-]*$/ };
+  };
+}
+
 // Build the textarea-shaped facade over a live EditorView.
 export function createEditor(opts) {
   const {
     parent, doc = '', dark = true, placeholder = '',
     onDocChange, onSelectionChange, onScroll, keymap: appKeys = [],
+    getWikiTargets, emojiMap,
   } = opts;
+
+  // Only enable the sources that have a provider, so autocomplete stays silent
+  // when there's no workspace / emoji map.
+  const completionSources = [];
+  if (getWikiTargets) completionSources.push(wikiCompletionSource(getWikiTargets));
+  if (emojiMap) completionSources.push(emojiCompletionSource(emojiMap));
+  const autocompleteExt = completionSources.length
+    ? [autocompletion({ override: completionSources, activateOnTyping: true, icons: false })]
+    : [];
 
   const themeCompartment = new Compartment();
   const liveCompartment = new Compartment(); // holds the live-preview plugin (off by default)
@@ -160,9 +224,11 @@ export function createEditor(opts) {
       markdown({ base: markdownLanguage }),
       syntaxHighlighting(mdHighlight),
       placeholder ? cmPlaceholder(placeholder) : [],
-      // App keymap first so Tab / Enter-list-continuation win over defaults;
-      // returning false falls through to the default behaviour.
-      keymap.of([...appKeys, ...defaultKeymap, ...historyKeymap, ...foldKeymap]),
+      autocompleteExt,
+      // Completion keys first so Enter/↑/↓ drive an open popup; each returns
+      // false when no popup is active and falls through to the app keys (e.g.
+      // Enter → list continuation). App keys then win over CM defaults.
+      keymap.of([...completionKeymap, ...appKeys, ...defaultKeymap, ...historyKeymap, ...foldKeymap]),
       baseTheme,
       themeCompartment.of(EditorView.theme({}, { dark })),
       liveCompartment.of([]),
