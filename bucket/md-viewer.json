@@ -1,12 +1,12 @@
 {
-    "version": "1.2.0",
+    "version": "1.2.1",
     "description": "A simple, fast cross-platform Markdown viewer and editor.",
     "homepage": "https://github.com/mdferdousalam/md-viewer",
     "license": "Freeware",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/mdferdousalam/md-viewer/releases/download/v1.2.0/Markdown-Viewer-1.2.0.exe#/md-viewer.exe",
-            "hash": "9877e6a3e4b6732778caf1f5c2ccc2b019465f51f0c9d7482e65b0df7b565987"
+            "url": "https://github.com/mdferdousalam/md-viewer/releases/download/v1.2.1/Markdown-Viewer-1.2.1.exe#/md-viewer.exe",
+            "hash": "9e0efea7c9db61b93e85bed8a76e5b3bfada3a3693e64e3088991b169580b407"
         }
     },
     "bin": "md-viewer.exe",
