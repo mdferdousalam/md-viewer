@@ -1089,7 +1089,14 @@ async function saveAllForClose() {
   return true;
 }
 window.api.onWindowSaveAll?.(async () => {
-  window.api.windowSaveAllDone?.(await saveAllForClose());
+  // Always reply — if a save throws (disk full, permissions), abort the close
+  // rather than leaving main waiting forever (which would re-wedge the window).
+  try {
+    window.api.windowSaveAllDone?.(await saveAllForClose());
+  } catch (err) {
+    console.error('Save-all on close failed:', err);
+    window.api.windowSaveAllDone?.(false);
+  }
 });
 
 // Autosave: only tabs that already have a path (never silently pops a Save

@@ -74,6 +74,8 @@ function createWindow(bounds) {
   win.on('close', (e) => {
     if (win.__forceClose || !win.__isDirty) return; // clean or already confirmed
     e.preventDefault();
+    if (win.__closePromptInProgress) return; // one dialog at a time (repeat clicks / ⌘Q)
+    win.__closePromptInProgress = true;
     dialog.showMessageBox(win, {
       type: 'warning',
       buttons: ['Save', "Don't Save", 'Cancel'],
@@ -82,14 +84,22 @@ function createWindow(bounds) {
       message: 'Do you want to save the changes you made?',
       detail: "Your changes will be lost if you don't save them.",
     }).then(({ response }) => {
-      if (response === 2) return; // Cancel: stay open
+      if (response === 2) { win.__closePromptInProgress = false; return; } // Cancel: stay open
       if (response === 1) { win.__forceClose = true; win.close(); return; } // Don't Save
       // Save: ask the renderer to save all dirty tabs, then close (unless aborted).
-      ipcMain.once('window:save-all-done', (ev, ok) => {
-        if (ev.sender === win.webContents && ok) { win.__forceClose = true; win.close(); }
-      });
+      // Use a named `on` listener scoped to this window (not `once`, which a
+      // sibling window's reply could consume) and remove it once handled or if
+      // the window goes away before the renderer replies.
+      const onSaveAllDone = (ev, ok) => {
+        if (ev.sender !== win.webContents) return; // reply from another window
+        ipcMain.off('window:save-all-done', onSaveAllDone);
+        win.__closePromptInProgress = false;
+        if (ok) { win.__forceClose = true; win.close(); }
+      };
+      ipcMain.on('window:save-all-done', onSaveAllDone);
+      win.once('closed', () => ipcMain.off('window:save-all-done', onSaveAllDone));
       win.webContents.send('window:save-all');
-    });
+    }).catch(() => { win.__closePromptInProgress = false; }); // never wedge the window shut
   });
 
   win.on('resize', scheduleSessionWrite);
