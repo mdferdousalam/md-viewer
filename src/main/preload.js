@@ -68,6 +68,11 @@ contextBridge.exposeInMainWorld('api', {
   onMenuZen: (cb) => subscribe('menu:zen', cb),
   onMenuExportPdf: (cb) => subscribe('menu:export-pdf', cb),
 
+  // Close guard: main asks the renderer to save all dirty tabs, then the
+  // renderer reports whether it succeeded (false -> abort the close).
+  onWindowSaveAll: (cb) => subscribe('window:save-all', cb),
+  windowSaveAllDone: (ok) => ipcRenderer.send('window:save-all-done', ok),
+
   platform: process.platform,
 });
 
