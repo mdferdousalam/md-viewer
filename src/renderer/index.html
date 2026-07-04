@@ -201,6 +201,23 @@
       </div>
     </div>
 
+    <!-- Workspace search (full-text across the open folder) -->
+    <div class="overlay" id="searchOverlay" hidden>
+      <div class="palette search-modal" role="dialog" aria-label="Search in workspace">
+        <div class="palette-search">
+          <svg class="ic"><use href="#i-search"/></svg>
+          <input type="text" id="searchInput" placeholder="Search across all notes…" spellcheck="false" autocomplete="off" />
+          <div class="search-opts">
+            <button type="button" class="search-opt" id="searchCase" title="Match case" aria-label="Match case" aria-pressed="false">Aa</button>
+            <button type="button" class="search-opt" id="searchWord" title="Whole word" aria-label="Whole word" aria-pressed="false">W</button>
+            <button type="button" class="search-opt" id="searchRegex" title="Use regular expression" aria-label="Use regular expression" aria-pressed="false">.*</button>
+          </div>
+        </div>
+        <div class="search-meta" id="searchMeta"></div>
+        <div class="palette-list search-list" id="searchList"></div>
+      </div>
+    </div>
+
     <!-- Shortcut help -->
     <div class="overlay" id="helpOverlay" hidden>
       <div class="help-modal" role="dialog" aria-label="Keyboard shortcuts">
@@ -226,6 +243,7 @@
           <label class="pref-row"><span>Editor font size</span><input type="range" id="prefEditorSize" min="12" max="20" step="0.5" /><span class="pref-val" id="prefEditorSizeVal"></span></label>
           <label class="pref-row"><span>Accent color</span><input type="color" id="prefAccent" class="pref-color" /><button class="text-btn" id="prefAccentReset" type="button">Default</button></label>
           <label class="pref-row pref-check"><input type="checkbox" id="prefAutosave" /><span>Autosave files that have a path</span></label>
+          <label class="pref-row pref-check"><input type="checkbox" id="prefLineNumbers" /><span>Show line numbers</span></label>
           <div class="pref-css">
             <span>Custom CSS <em>(applies to preview + editor)</em></span>
             <textarea id="prefUserCss" class="pref-css-area" spellcheck="false" placeholder="/* e.g.  .markdown-body { --accent-text: #e06c9f; }  */"></textarea>
