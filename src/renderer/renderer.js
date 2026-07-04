@@ -1078,6 +1078,20 @@ async function doSave(forceDialog = false) {
   return true;
 }
 
+// Save every dirty tab so the window can close. Returns false if any save is
+// cancelled (e.g. the user dismisses a Save As for an untitled buffer) so the
+// main process can abort the close. Invoked by main's close guard.
+async function saveAllForClose() {
+  for (const t of tabs.filter(tabIsDirty)) {
+    if (t.id !== activeId) activateTab(t.id, true);
+    if (!(await doSave(false))) return false; // doSave pops Save As for untitled
+  }
+  return true;
+}
+window.api.onWindowSaveAll?.(async () => {
+  window.api.windowSaveAllDone?.(await saveAllForClose());
+});
+
 // Autosave: only tabs that already have a path (never silently pops a Save
 // dialog for an untitled buffer). Because doSave sets savedContent on write,
 // the fs.watchFile echo is ignored by onExternalChange's content===saved guard.
@@ -2007,8 +2021,8 @@ window.api.onMenuZen(() => toggleZen());
 window.api.onMenuExportPdf(exportPdf);
 window.api.onMenuExportDocx?.(doExportDocx);
 window.api.onMenuPrint?.(doPrint);
-// ⌘W closes the active tab; on the last tab it closes the window (honouring the
-// unsaved-changes guard in beforeunload).
+// ⌘W closes the active tab; on the last tab it closes the window (the main
+// process runs the unsaved-changes guard on close).
 window.api.onMenuCloseTab?.(() => { if (tabs.length > 1 && activeId) closeTab(activeId); else window.close(); });
 
 // Global keybindings
@@ -2063,7 +2077,10 @@ function isTyping(el) {
 }
 
 window.addEventListener('blur', flushAutosave);
-window.addEventListener('beforeunload', (e) => { flushAutosave(); if (anyDirty()) { e.preventDefault(); e.returnValue = ''; } });
+// Flush the active tab on close. The unsaved-changes guard lives in the main
+// process (see `window:save-all` below) — a `beforeunload` preventDefault would
+// only silently veto the close with no dialog.
+window.addEventListener('beforeunload', flushAutosave);
 
 // ============================================================
 // Content constants

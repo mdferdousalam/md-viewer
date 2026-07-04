@@ -67,6 +67,31 @@ function createWindow(bounds) {
     Menu.buildFromTemplate(items).popup();
   });
 
+  // Unsaved-changes guard. `win.__isDirty` is kept fresh by the renderer via
+  // 'doc:dirty-state'. We prompt here (native dialog) rather than letting the
+  // renderer's beforeunload silently veto the close — which is what left the
+  // close button "dead" on macOS.
+  win.on('close', (e) => {
+    if (win.__forceClose || !win.__isDirty) return; // clean or already confirmed
+    e.preventDefault();
+    dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: ['Save', "Don't Save", 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      message: 'Do you want to save the changes you made?',
+      detail: "Your changes will be lost if you don't save them.",
+    }).then(({ response }) => {
+      if (response === 2) return; // Cancel: stay open
+      if (response === 1) { win.__forceClose = true; win.close(); return; } // Don't Save
+      // Save: ask the renderer to save all dirty tabs, then close (unless aborted).
+      ipcMain.once('window:save-all-done', (ev, ok) => {
+        if (ev.sender === win.webContents && ok) { win.__forceClose = true; win.close(); }
+      });
+      win.webContents.send('window:save-all');
+    });
+  });
+
   win.on('resize', scheduleSessionWrite);
   win.on('move', scheduleSessionWrite);
   win.on('close', persistSession);
