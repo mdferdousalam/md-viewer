@@ -207,8 +207,13 @@
         <div class="palette-search">
           <svg class="ic"><use href="#i-search"/></svg>
           <input type="text" id="searchInput" placeholder="Search across all notes…" spellcheck="false" autocomplete="off" />
-          <span class="search-meta" id="searchMeta"></span>
+          <div class="search-opts">
+            <button type="button" class="search-opt" id="searchCase" title="Match case" aria-label="Match case" aria-pressed="false">Aa</button>
+            <button type="button" class="search-opt" id="searchWord" title="Whole word" aria-label="Whole word" aria-pressed="false">W</button>
+            <button type="button" class="search-opt" id="searchRegex" title="Use regular expression" aria-label="Use regular expression" aria-pressed="false">.*</button>
+          </div>
         </div>
+        <div class="search-meta" id="searchMeta"></div>
         <div class="palette-list search-list" id="searchList"></div>
       </div>
     </div>

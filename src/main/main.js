@@ -732,7 +732,7 @@ ipcMain.handle('fs:search-workspace', (_e, { root, query, opts = {} } = {}) => {
           const m = re.exec(line);
           if (!m) continue;
           const idx = m.index;
-          const len = m[0].length || query.length;
+          const len = m[0].length; // m[0] is the matched text; may be 0 for zero-width regex
           // Trim long lines to a window around the hit; report the hit's offset
           // within that preview so the renderer can highlight it.
           let preview = line, pcol = idx, ell = false;

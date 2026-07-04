@@ -1831,9 +1831,10 @@ const searchOverlay = $('searchOverlay');
 const searchInput = $('searchInput');
 const searchList = $('searchList');
 const searchMeta = $('searchMeta');
-let searchRows = [];   // flat [{ path, lineNo, col, length }] for keyboard nav
+let searchRows = [];   // flat [{ path, lineNo, col, length, el }] for keyboard nav
 let searchSel = 0;
 let searchTimer = null;
+const searchOpts = { caseSensitive: false, wholeWord: false, regex: false };
 
 function searchHint(msg) { searchList.innerHTML = ''; const d = document.createElement('div'); d.className = 'palette-empty'; d.textContent = msg; searchList.appendChild(d); searchRows = []; }
 
@@ -1855,7 +1856,7 @@ async function runSearch() {
   const q = searchInput.value.trim();
   if (!q) { searchMeta.textContent = ''; searchHint('Type to search every note in this folder'); return; }
   if (!workspaceRoot) { searchHint('Open a folder to search across notes'); return; }
-  const res = await window.api.searchWorkspace?.(workspaceRoot, q);
+  const res = await window.api.searchWorkspace?.(workspaceRoot, q, searchOpts);
   if (searchOverlay.hidden || searchInput.value.trim() !== q) return; // closed or superseded
   renderSearch(res || {}, q);
 }
@@ -1880,10 +1881,9 @@ function renderSearch(res) {
     group.appendChild(head);
     file.matches.forEach((mtc) => {
       const idx = searchRows.length;
-      searchRows.push({ path: file.path, lineNo: mtc.lineNo, col: mtc.col, length: mtc.length });
       const row = document.createElement('button');
       row.className = 'search-hit';
-      row.dataset.idx = idx;
+      searchRows.push({ path: file.path, lineNo: mtc.lineNo, col: mtc.col, length: mtc.length, el: row });
       const ln = document.createElement('span');
       ln.className = 'search-ln';
       ln.textContent = mtc.lineNo;
@@ -1906,10 +1906,10 @@ function renderSearch(res) {
   setSearchSel(0);
 }
 
-function searchHitEls() { return [...searchList.querySelectorAll('.search-hit')]; }
 function setSearchSel(i) {
+  searchRows[searchSel]?.el?.classList.remove('active');
   searchSel = i;
-  searchHitEls().forEach((el) => el.classList.toggle('active', Number(el.dataset.idx) === i));
+  searchRows[searchSel]?.el?.classList.add('active');
 }
 function runSearchHit(i) { const r = searchRows[i]; closeSearch(); if (r) openSearchMatch(r.path, r.lineNo, r.col, r.length); }
 
@@ -1934,12 +1934,24 @@ searchInput.addEventListener('input', () => {
   searchTimer = setTimeout(runSearch, 150);
 });
 searchInput.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowDown') { e.preventDefault(); setSearchSel(Math.min(searchSel + 1, searchRows.length - 1)); searchHitEls()[searchSel]?.scrollIntoView({ block: 'nearest' }); }
-  else if (e.key === 'ArrowUp') { e.preventDefault(); setSearchSel(Math.max(searchSel - 1, 0)); searchHitEls()[searchSel]?.scrollIntoView({ block: 'nearest' }); }
+  if (e.key === 'ArrowDown') { e.preventDefault(); setSearchSel(Math.min(searchSel + 1, searchRows.length - 1)); searchRows[searchSel]?.el?.scrollIntoView({ block: 'nearest' }); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setSearchSel(Math.max(searchSel - 1, 0)); searchRows[searchSel]?.el?.scrollIntoView({ block: 'nearest' }); }
   else if (e.key === 'Enter') { e.preventDefault(); if (searchRows.length) runSearchHit(searchSel); }
   else if (e.key === 'Escape') closeSearch();
 });
 searchOverlay.addEventListener('mousedown', (e) => { if (e.target === searchOverlay) closeSearch(); });
+
+// Case-sensitive / whole-word / regex toggles — flip the opt, re-run, keep focus.
+[['searchCase', 'caseSensitive'], ['searchWord', 'wholeWord'], ['searchRegex', 'regex']].forEach(([id, key]) => {
+  $(id).addEventListener('click', () => {
+    searchOpts[key] = !searchOpts[key];
+    $(id).classList.toggle('active', searchOpts[key]);
+    $(id).setAttribute('aria-pressed', String(searchOpts[key]));
+    if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; }
+    runSearch();
+    searchInput.focus();
+  });
+});
 
 // ============================================================
 // Shortcut help
