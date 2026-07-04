@@ -244,7 +244,7 @@ async function renderMermaid(root = preview) {
 // Workspace-level state (shared across tabs).
 const state = { viewMode: 'split', theme: 'dark', zen: false, outlineOpen: false };
 let autosaveEnabled = true; // persisted in the session; toggled from the palette
-const PREFS_DEFAULT = { readWidth: 780, readSize: 15.5, readLineHeight: 1.72, editorSize: 14.5, accent: '', userCss: '' };
+const PREFS_DEFAULT = { readWidth: 780, readSize: 15.5, readLineHeight: 1.72, editorSize: 14.5, accent: '', userCss: '', showLineNumbers: true };
 let prefs = { ...PREFS_DEFAULT }; // typography prefs, persisted in the session
 
 // Open documents. Only the ACTIVE tab's text lives in the CodeMirror editor;
@@ -284,6 +284,7 @@ const editor = createEditor({
   // emoji. The wiki getter reads the live index so it stays fresh.
   getWikiTargets: () => wikiIndex,
   emojiMap: EMOJI,
+  showLineNumbers: prefs.showLineNumbers !== false,
   keymap: [
     { key: 'Tab', run: () => { surround('  ', '', ''); return true; } },
     { key: 'Shift-Tab', run: () => { outdent(); return true; } },
@@ -1696,7 +1697,9 @@ const COMMANDS = [
   { id: 'print', label: 'Print…', key: '⌘⇧O', icon: 'i-save', run: doPrint },
   { id: 'copyhtml', label: 'Copy as HTML', icon: 'i-code', run: copyHtml },
   { id: 'autosave', label: 'Toggle Autosave (on/off)', icon: 'i-save', run: toggleAutosave },
+  { id: 'linenums', label: 'Toggle Line Numbers', icon: 'i-outline', run: toggleLineNumbers },
   { id: 'find', label: 'Find & Replace', key: '⌘F', icon: 'i-search', run: openFind },
+  { id: 'search', label: 'Search in Workspace…', key: '⌘⇧F', icon: 'i-search', run: openSearch },
   { id: 'outline', label: 'Toggle Outline', icon: 'i-outline', run: () => toggleOutline() },
   { id: 'backlinks', label: 'Toggle Backlinks', icon: 'i-link', run: () => toggleBacklinks() },
   { id: 'graph', label: 'Open Knowledge Graph', key: '⌘⇧G', icon: 'i-link', run: openGraph },
@@ -1704,7 +1707,7 @@ const COMMANDS = [
   { id: 'vs', label: 'View: Split', key: '⌘2', icon: 'i-split', run: () => setViewMode('split') },
   { id: 'vp', label: 'View: Preview only', key: '⌘3', icon: 'i-eye', run: () => setViewMode('preview') },
   { id: 'vl', label: 'View: Live preview (Typora-style)', key: '⌘4', icon: 'i-live', run: () => setViewMode('live') },
-  { id: 'zen', label: 'Toggle Focus Mode', key: '⌘⇧F', icon: 'i-zen', run: () => toggleZen() },
+  { id: 'zen', label: 'Toggle Focus Mode', key: '⌘⇧D', icon: 'i-zen', run: () => toggleZen() },
   { id: 'theme', label: 'Cycle Theme (Dark / Light / Sepia)', key: '⌘⇧L', icon: 'i-sun', run: cycleTheme },
   { id: 'present', label: 'Start Presentation', key: '⌘⇧Enter', icon: 'i-eye', run: startPresentation },
   { id: 'prefs', label: 'Preferences…', key: '⌘,', icon: 'i-outline', run: openPrefs },
@@ -1821,6 +1824,124 @@ quickOpenInput.addEventListener('keydown', (e) => {
 quickOpenOverlay.addEventListener('mousedown', (e) => { if (e.target === quickOpenOverlay) closeQuickOpen(); });
 
 // ============================================================
+// Workspace search (full-text across the open folder)
+// ============================================================
+
+const searchOverlay = $('searchOverlay');
+const searchInput = $('searchInput');
+const searchList = $('searchList');
+const searchMeta = $('searchMeta');
+let searchRows = [];   // flat [{ path, lineNo, col, length }] for keyboard nav
+let searchSel = 0;
+let searchTimer = null;
+
+function searchHint(msg) { searchList.innerHTML = ''; const d = document.createElement('div'); d.className = 'palette-empty'; d.textContent = msg; searchList.appendChild(d); searchRows = []; }
+
+async function openSearch() {
+  if (!workspaceRoot) { openFolder(); return; }
+  // Seed with the current single-line selection, like VS Code / Obsidian.
+  const sel = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+  if (sel && !sel.includes('\n')) searchInput.value = sel;
+  searchOverlay.hidden = false;
+  searchMeta.textContent = '';
+  searchInput.focus();
+  searchInput.select();
+  if (searchInput.value.trim()) runSearch();
+  else searchHint('Type to search every note in this folder');
+}
+function closeSearch() { searchOverlay.hidden = true; if (searchTimer) { clearTimeout(searchTimer); searchTimer = null; } editor.focus(); }
+
+async function runSearch() {
+  const q = searchInput.value.trim();
+  if (!q) { searchMeta.textContent = ''; searchHint('Type to search every note in this folder'); return; }
+  if (!workspaceRoot) { searchHint('Open a folder to search across notes'); return; }
+  const res = await window.api.searchWorkspace?.(workspaceRoot, q);
+  if (searchOverlay.hidden || searchInput.value.trim() !== q) return; // closed or superseded
+  renderSearch(res || {}, q);
+}
+
+function renderSearch(res) {
+  searchList.innerHTML = '';
+  searchRows = [];
+  searchSel = 0;
+  if (res.error) { searchMeta.textContent = ''; searchHint(res.error); return; }
+  const results = res.results || [];
+  if (!results.length) { searchMeta.textContent = ''; searchHint('No matches'); return; }
+  const files = results.length;
+  searchMeta.textContent = `${res.total} match${res.total === 1 ? '' : 'es'} in ${files} file${files === 1 ? '' : 's'}${res.truncated ? ' · showing first results' : ''}`;
+  results.forEach((file) => {
+    const group = document.createElement('div');
+    group.className = 'search-group';
+    const head = document.createElement('div');
+    head.className = 'search-file';
+    head.innerHTML = '<svg class="ic"><use href="#i-file"/></svg><span class="search-file-name"></span><span class="search-file-count"></span>';
+    head.querySelector('.search-file-name').textContent = file.relPath;
+    head.querySelector('.search-file-count').textContent = file.matches.length;
+    group.appendChild(head);
+    file.matches.forEach((mtc) => {
+      const idx = searchRows.length;
+      searchRows.push({ path: file.path, lineNo: mtc.lineNo, col: mtc.col, length: mtc.length });
+      const row = document.createElement('button');
+      row.className = 'search-hit';
+      row.dataset.idx = idx;
+      const ln = document.createElement('span');
+      ln.className = 'search-ln';
+      ln.textContent = mtc.lineNo;
+      const snip = document.createElement('span');
+      snip.className = 'search-snip';
+      const p = mtc.preview || '';
+      const a = Math.max(0, mtc.pcol || 0), b = a + (mtc.plen || 0);
+      snip.appendChild(document.createTextNode(p.slice(0, a)));
+      const mark = document.createElement('mark');
+      mark.textContent = p.slice(a, b);
+      snip.appendChild(mark);
+      snip.appendChild(document.createTextNode(p.slice(b)));
+      row.append(ln, snip);
+      row.addEventListener('click', () => runSearchHit(idx));
+      row.addEventListener('mousemove', () => setSearchSel(idx));
+      group.appendChild(row);
+    });
+    searchList.appendChild(group);
+  });
+  setSearchSel(0);
+}
+
+function searchHitEls() { return [...searchList.querySelectorAll('.search-hit')]; }
+function setSearchSel(i) {
+  searchSel = i;
+  searchHitEls().forEach((el) => el.classList.toggle('active', Number(el.dataset.idx) === i));
+}
+function runSearchHit(i) { const r = searchRows[i]; closeSearch(); if (r) openSearchMatch(r.path, r.lineNo, r.col, r.length); }
+
+// Character offset of a 1-based (line, col) inside `text`.
+function posFromLineCol(text, lineNo, col) {
+  const lines = text.split(/\r?\n/);
+  let pos = 0;
+  for (let i = 0; i < lineNo - 1 && i < lines.length; i++) pos += lines[i].length + 1; // +1 for the newline
+  return pos + (col - 1);
+}
+
+async function openSearchMatch(fp, lineNo, col, length) {
+  await openWorkspaceFile(fp);
+  if (state.viewMode === 'preview') setViewMode('split'); // search hits land in the source
+  const from = posFromLineCol(editor.value, lineNo, col);
+  editor.setSelectionRange(from, from + (length || 0));
+  editor.focus();
+}
+
+searchInput.addEventListener('input', () => {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(runSearch, 150);
+});
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); setSearchSel(Math.min(searchSel + 1, searchRows.length - 1)); searchHitEls()[searchSel]?.scrollIntoView({ block: 'nearest' }); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); setSearchSel(Math.max(searchSel - 1, 0)); searchHitEls()[searchSel]?.scrollIntoView({ block: 'nearest' }); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (searchRows.length) runSearchHit(searchSel); }
+  else if (e.key === 'Escape') closeSearch();
+});
+searchOverlay.addEventListener('mousedown', (e) => { if (e.target === searchOverlay) closeSearch(); });
+
+// ============================================================
 // Shortcut help
 // ============================================================
 
@@ -1828,9 +1949,10 @@ const helpOverlay = $('helpOverlay');
 const SHORTCUTS = [
   ['New file / tab', '⌘N / ⌘T'], ['Open', '⌘O'], ['Save', '⌘S'], ['Save As', '⌘⇧S'],
   ['Bold', '⌘B'], ['Italic', '⌘I'], ['Insert link', '⌘K'],
-  ['Find & replace', '⌘F'], ['Quick open / Command palette', '⌘P / ⌘⇧P'],
+  ['Find & replace', '⌘F'], ['Search in workspace', '⌘⇧F'],
+  ['Quick open / Command palette', '⌘P / ⌘⇧P'],
   ['Editor / Split / Preview / Live', '⌘1 / ⌘2 / ⌘3 / ⌘4'], ['Toggle outline', '⌘\\'],
-  ['Focus mode', '⌘⇧F'], ['Cycle theme', '⌘⇧L'],
+  ['Focus mode', '⌘⇧D'], ['Cycle theme', '⌘⇧L'],
   ['Start presentation', '⌘⇧⏎'], ['Slides: next / prev / exit', '→ / ← / Esc'],
   ['Knowledge graph', '⌘⇧G'], ['Shortcuts', '?'],
 ];
@@ -1864,6 +1986,15 @@ function applyPrefs() {
   r.setProperty('--editor-size', prefs.editorSize + 'px');
   applyAccent(prefs.accent);
   applyUserCss();
+  applyLineNumbers(prefs.showLineNumbers !== false);
+}
+
+// Line numbers: the CM gutter follows this in every editing mode. In Live-preview
+// mode the whole gutter is hidden when off (via the `no-linenums` body class) so
+// the document-style view stays clean; Focus/Zen always hides it by design.
+function applyLineNumbers(on) {
+  editor.setLineNumbers(on);
+  document.body.classList.toggle('no-linenums', !on);
 }
 
 // Override the theme's accent (and its soft/text variants) with a user colour.
@@ -1892,6 +2023,7 @@ function syncPrefsUI() {
   $('prefAccent').value = prefs.accent || normalizeHex(cssVar('--accent')) || '#7c9cff';
   $('prefUserCss').value = prefs.userCss || '';
   $('prefAutosave').checked = autosaveEnabled;
+  $('prefLineNumbers').checked = prefs.showLineNumbers !== false;
 }
 
 // Coerce a CSS colour value to a #rrggbb string a <input type=color> accepts.
@@ -1916,6 +2048,16 @@ $('prefAccent').addEventListener('input', (e) => { prefs.accent = e.target.value
 $('prefAccentReset').addEventListener('click', () => { prefs.accent = ''; applyAccent(''); syncPrefsUI(); pushSession(); });
 $('prefUserCss').addEventListener('input', (e) => { prefs.userCss = e.target.value; applyUserCss(); pushSession(); });
 $('prefAutosave').addEventListener('change', (e) => { autosaveEnabled = e.target.checked; if (autosaveEnabled) scheduleAutosave(); pushSession(); });
+$('prefLineNumbers').addEventListener('change', (e) => { prefs.showLineNumbers = e.target.checked; applyLineNumbers(prefs.showLineNumbers); pushSession(); });
+
+// Flip the line-number gutter from the palette; mirrors the pref.
+function toggleLineNumbers() {
+  prefs.showLineNumbers = prefs.showLineNumbers === false;
+  applyLineNumbers(prefs.showLineNumbers);
+  if (!prefsOverlay.hidden) syncPrefsUI();
+  flash(prefs.showLineNumbers ? 'Line numbers on' : 'Line numbers off');
+  pushSession();
+}
 $('prefReset').addEventListener('click', () => { prefs = { ...PREFS_DEFAULT }; applyPrefs(); syncPrefsUI(); pushSession(); });
 prefsOverlay.addEventListener('mousedown', (e) => { if (e.target === prefsOverlay) closePrefs(); });
 document.querySelectorAll('[data-action="prefs-close"]').forEach((b) => b.addEventListener('click', closePrefs));
@@ -2055,6 +2197,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (isGraphOpen()) return closeGraph();
     if (!prefsOverlay.hidden) return closePrefs();
+    if (!searchOverlay.hidden) return closeSearch();
     if (!quickOpenOverlay.hidden) return closeQuickOpen();
     if (!paletteOverlay.hidden) return closePalette();
     if (!helpOverlay.hidden) return toggleHelp(false);
@@ -2066,7 +2209,8 @@ window.addEventListener('keydown', (e) => {
   if (k === ',') { e.preventDefault(); openPrefs(); }
   else if (k === 't') { e.preventDefault(); doNew(); }
   else if (k === 's') { e.preventDefault(); doSave(e.shiftKey); }
-  else if (k === 'f' && e.shiftKey) { e.preventDefault(); toggleZen(); }
+  else if (k === 'f' && e.shiftKey) { e.preventDefault(); openSearch(); }
+  else if (k === 'd' && e.shiftKey) { e.preventDefault(); toggleZen(); }
   else if (k === 'f') { e.preventDefault(); openFind(); }
   else if (k === 'p' && e.shiftKey) { e.preventDefault(); openPalette(); }
   else if (k === 'p') { e.preventDefault(); openQuickOpen(); }

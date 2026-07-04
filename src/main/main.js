@@ -694,6 +694,70 @@ ipcMain.handle('fs:backlinks', (_e, { root, targetPath } = {}) => {
   }
 });
 
+// Full-text search across workspace markdown files. Returns matches grouped by
+// file, each with a 1-based line/column and a trimmed preview centred on the hit.
+// Bounded like the walks above. opts: { caseSensitive, wholeWord, regex }.
+ipcMain.handle('fs:search-workspace', (_e, { root, query, opts = {} } = {}) => {
+  try {
+    if (!root || !query) return { results: [], total: 0, truncated: false };
+    const flags = opts.caseSensitive ? 'g' : 'gi';
+    let re;
+    if (opts.regex) {
+      try { re = new RegExp(query, flags); } catch (_) { return { error: 'Invalid regular expression', results: [], total: 0, truncated: false }; }
+    } else {
+      let pat = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (opts.wholeWord) pat = `\\b${pat}\\b`;
+      re = new RegExp(pat, flags);
+    }
+    const MAX_FILES = 300, MAX_PER_FILE = 20, MAX_TOTAL = 2000, PREVIEW = 200, PAD = 40;
+    const results = [];
+    let total = 0, truncated = false;
+    const walk = (dir, depth) => {
+      if (truncated || depth > 8 || results.length >= MAX_FILES) return;
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+      for (const ent of entries) {
+        if (truncated || results.length >= MAX_FILES) return;
+        if (ent.name.startsWith('.') || SKIP_DIR.has(ent.name)) continue;
+        const full = path.join(dir, ent.name);
+        if (ent.isDirectory()) { walk(full, depth + 1); continue; }
+        if (!MD_RE.test(ent.name)) continue;
+        let text;
+        try { text = fs.readFileSync(full, 'utf8'); } catch (_) { continue; }
+        const lines = text.split(/\r?\n/);
+        const matches = [];
+        for (let i = 0; i < lines.length && matches.length < MAX_PER_FILE; i++) {
+          const line = lines[i];
+          re.lastIndex = 0;
+          const m = re.exec(line);
+          if (!m) continue;
+          const idx = m.index;
+          const len = m[0].length || query.length;
+          // Trim long lines to a window around the hit; report the hit's offset
+          // within that preview so the renderer can highlight it.
+          let preview = line, pcol = idx, ell = false;
+          if (line.length > PREVIEW) {
+            const start = Math.max(0, idx - PAD);
+            ell = start > 0;
+            preview = (ell ? '…' : '') + line.slice(start, start + PREVIEW);
+            pcol = (ell ? 1 : 0) + (idx - start);
+          }
+          matches.push({ lineNo: i + 1, col: idx + 1, length: len, preview, pcol, plen: len });
+          total++;
+          if (total >= MAX_TOTAL) { truncated = true; break; }
+        }
+        if (matches.length) {
+          results.push({ name: ent.name, path: full, relPath: path.relative(root, full).split(path.sep).join('/'), matches });
+        }
+      }
+    };
+    walk(root, 0);
+    return { results, total, truncated };
+  } catch (err) {
+    return { error: err.message, results: [], total: 0, truncated: false };
+  }
+});
+
 // Build the workspace link graph: every markdown note is a node, and each
 // resolved `[[wiki link]]` is a directed edge. Resolution mirrors the renderer
 // (by filename stem, then workspace-relative path, case-insensitively).

@@ -61,7 +61,7 @@ const baseTheme = EditorView.theme({
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--accent)', borderLeftWidth: '2px' },
   '.cm-selectionBackground': { backgroundColor: 'var(--sel)' },
   '&.cm-focused .cm-selectionBackground': { backgroundColor: 'var(--sel)' },
-  '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--text-dim)', border: 'none' },
+  '.cm-gutters': { backgroundColor: 'transparent', color: 'var(--text-2)', border: 'none' },
   '.cm-lineNumbers .cm-gutterElement': { padding: '0 6px 0 16px', minWidth: '2.5ch' },
   '.cm-foldGutter .cm-gutterElement': { padding: '0 2px' },
   '.cm-activeLine': { backgroundColor: 'transparent' },
@@ -181,7 +181,7 @@ export function createEditor(opts) {
   const {
     parent, doc = '', dark = true, placeholder = '',
     onDocChange, onSelectionChange, onScroll, keymap: appKeys = [],
-    getWikiTargets, emojiMap,
+    getWikiTargets, emojiMap, showLineNumbers = true,
   } = opts;
 
   // Only enable the sources that have a provider, so autocomplete stays silent
@@ -195,6 +195,7 @@ export function createEditor(opts) {
 
   const themeCompartment = new Compartment();
   const liveCompartment = new Compartment(); // holds the live-preview plugin (off by default)
+  const lineNumberCompartment = new Compartment(); // holds lineNumbers(), toggled by the user pref
   let cachedDoc = doc; // avoid O(n) doc.toString() on every read; refreshed on change
 
   const updateListener = EditorView.updateListener.of((u) => {
@@ -205,7 +206,7 @@ export function createEditor(opts) {
   const state = EditorState.create({
     doc,
     extensions: [
-      lineNumbers(),
+      lineNumberCompartment.of(showLineNumbers ? lineNumbers() : []),
       highlightActiveLineGutter(),
       highlightActiveLine(),
       history(),
@@ -284,6 +285,11 @@ export function createEditor(opts) {
     // Toggle Typora-style live preview (conceal inline markers off the caret line).
     setLiveMode(on) {
       view.dispatch({ effects: liveCompartment.reconfigure(on ? livePreviewPlugin : []) });
+    },
+
+    // Show/hide the line-number gutter (driven by the user preference).
+    setLineNumbers(on) {
+      view.dispatch({ effects: lineNumberCompartment.reconfigure(on ? lineNumbers() : []) });
     },
   };
 }
