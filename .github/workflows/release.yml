@@ -59,18 +59,21 @@ jobs:
 
       - name: Regenerate package definitions
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional PAT with write access to mdferdousalam/homebrew-tap. If unset,
-          # the Homebrew cask push is skipped (Scoop + winget still update).
+          # GH_TOKEN reads THIS repo's release assets (same-repo, always scoped).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with contents:write on mdferdousalam/homebrew-tap, used ONLY to push
+          # the Homebrew cask. Required: the tag is already public, so the tap must
+          # bump in lockstep. Create a fine-grained token (Repository access: the tap
+          # repo only, Permissions: Contents = Read and write) and add it as the
+          # HOMEBREW_TAP_TOKEN repo secret.
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          if [ -n "$TAP_TOKEN" ]; then
-            GH_TOKEN="$TAP_TOKEN" PUSH_CASK=1 sh scripts/update-packages.sh "$VERSION"
-          else
-            echo "HOMEBREW_TAP_TOKEN not set - updating Scoop + winget only, skipping cask push."
-            GH_TOKEN="$GITHUB_TOKEN" PUSH_CASK=0 sh scripts/update-packages.sh "$VERSION"
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "::error title=Homebrew tap not bumped::HOMEBREW_TAP_TOKEN secret is missing, so the Homebrew cask for $VERSION was NOT pushed to mdferdousalam/homebrew-tap. Installers published fine, but 'brew upgrade' won't see $VERSION until the tap is bumped. Add a PAT with contents:write on the tap as the HOMEBREW_TAP_TOKEN secret, then re-run this job."
+            exit 1
           fi
+          PUSH_CASK=1 sh scripts/update-packages.sh "$VERSION"
 
       # Branch protection blocks the bot from pushing straight to main, so push the
       # refreshed manifests to a manifests/<tag> branch and print a compare link.
