@@ -1,0 +1,3 @@
+# Default reviewer for all changes — external PRs require this review;
+# the maintainer bypasses via the branch ruleset.
+* @mdferdousalam
