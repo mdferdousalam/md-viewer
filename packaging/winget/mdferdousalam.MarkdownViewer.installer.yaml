@@ -1,5 +1,5 @@
 PackageIdentifier: mdferdousalam.MarkdownViewer
-PackageVersion: 1.2.2
+PackageVersion: 1.2.3
 InstallerType: nullsoft
 Scope: user
 InstallModes:
@@ -7,7 +7,7 @@ InstallModes:
   - silent
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/mdferdousalam/md-viewer/releases/download/v1.2.2/Markdown-Viewer-Setup-1.2.2.exe
-    InstallerSha256: 7CC9B09837F64FCCBA50BECE04D4B8F26EEDB54ADDF624631BF713677A865E79
+    InstallerUrl: https://github.com/mdferdousalam/md-viewer/releases/download/v1.2.3/Markdown-Viewer-Setup-1.2.3.exe
+    InstallerSha256: F8156F438DB49DA78A243B5F5687DF885FB58C09425352EE17B2DB2F9686B316
 ManifestType: installer
 ManifestVersion: 1.6.0
