@@ -7,8 +7,10 @@
 # Usage:  scripts/update-packages.sh [version]     (default: package.json version)
 #
 # Env:
-#   PUSH_CASK=0   skip pushing the Homebrew cask (e.g. in CI without a tap token)
-#   GH_TOKEN      used by `gh` for the cask push; must have access to the tap repo
+#   PUSH_CASK=0   skip pushing the Homebrew cask (e.g. a local dry run)
+#   GH_TOKEN      used by `gh` to download this repo's release assets
+#   TAP_TOKEN     used by `gh` to push the cask to the tap repo (falls back to
+#                 GH_TOKEN if unset). In CI this is the HOMEBREW_TAP_TOKEN secret.
 set -eu
 
 REPO="mdferdousalam/md-viewer"
@@ -172,17 +174,32 @@ mkdir -p "$ROOT/packaging/homebrew"
 cp "$CASK" "$ROOT/packaging/homebrew/md-viewer.rb"
 
 if [ "$PUSH_CASK" = "1" ]; then
+  # The tap push needs write access to TAP_REPO; prefer a dedicated TAP_TOKEN so the
+  # release download above can keep using this repo's ambient GH_TOKEN.
+  PUSH_TOKEN="${TAP_TOKEN:-${GH_TOKEN:-}}"
+  [ -n "$PUSH_TOKEN" ] || { echo "PUSH_CASK=1 but no TAP_TOKEN/GH_TOKEN set for the tap push" >&2; exit 1; }
+
   echo "Pushing cask to $TAP_REPO via GitHub API..."
   B64="$(base64 < "$CASK" | tr -d '\n')"
-  EXISTING_SHA="$(gh api "repos/$TAP_REPO/contents/Casks/md-viewer.rb" -q .sha 2>/dev/null || true)"
+  EXISTING_SHA="$(GH_TOKEN="$PUSH_TOKEN" gh api "repos/$TAP_REPO/contents/Casks/md-viewer.rb" -q .sha 2>/dev/null || true)"
   if [ -n "$EXISTING_SHA" ]; then
-    gh api --method PUT "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
+    GH_TOKEN="$PUSH_TOKEN" gh api --method PUT "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
       -f message="md-viewer $VERSION" -f content="$B64" -f sha="$EXISTING_SHA" >/dev/null
   else
-    gh api --method PUT "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
+    GH_TOKEN="$PUSH_TOKEN" gh api --method PUT "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
       -f message="md-viewer $VERSION" -f content="$B64" >/dev/null
   fi
-  echo "Cask pushed."
+
+  # Verify the tap now serves this version, so a silent no-op can't pass as success
+  # (the failure mode that let earlier releases ship without bumping the tap).
+  PUSHED_VERSION="$(GH_TOKEN="$PUSH_TOKEN" gh api "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
+    -H "Accept: application/vnd.github.raw" 2>/dev/null \
+    | sed -n 's/^[[:space:]]*version "\(.*\)"/\1/p' | head -1)"
+  if [ "$PUSHED_VERSION" != "$VERSION" ]; then
+    echo "Tap verification failed: expected $VERSION but $TAP_REPO now shows '${PUSHED_VERSION:-<none>}'" >&2
+    exit 1
+  fi
+  echo "Cask pushed and verified: $TAP_REPO now at $VERSION."
 else
   echo "PUSH_CASK=0 -> skipped tap push (cask copy left in packaging/homebrew/md-viewer.rb)"
 fi
