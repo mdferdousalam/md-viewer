@@ -6,7 +6,10 @@ on:
   push:
     tags:
       - 'v*'
-  # Allow manual runs (won't publish unless a matching release/tag exists).
+  # Manual re-runs: in the "Run workflow" dropdown, pick an existing version tag
+  # (e.g. v1.2.3) as the ref. Dispatching from a branch (e.g. main) is a no-op —
+  # both jobs are guarded to run only on a v* tag (see `if:` below), so a stray
+  # manual run can't publish to the wrong version or half-run.
   workflow_dispatch:
 
 permissions:
@@ -14,6 +17,8 @@ permissions:
 
 jobs:
   release:
+    # Only release from a version tag. On a branch dispatch this is skipped, not failed.
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +53,7 @@ jobs:
   # version and checksums.
   packages:
     needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
