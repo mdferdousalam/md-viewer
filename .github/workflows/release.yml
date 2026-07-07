@@ -108,7 +108,13 @@ jobs:
       # Branch protection blocks the bot from pushing straight to main, so push the
       # refreshed manifests to a manifests/<tag> branch and print a compare link.
       # Open the PR from there in one click; branch protection stays intact.
-      - name: Push manifest-refresh branch
+      # Scoop/winget manifests can't be pushed straight to main (branch protection
+      # requires a PR), so open a PR from a manifests/<tag> branch and auto-merge it.
+      # Reviews on main are 0, so no approval is needed. gh uses the PAT because the
+      # default GITHUB_TOKEN isn't permitted to create pull requests.
+      - name: Push & auto-merge manifest refresh
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -120,5 +126,16 @@ jobs:
           BRANCH="manifests/${GITHUB_REF_NAME}"
           git commit -m "chore: update package manifests for ${GITHUB_REF_NAME}"
           git push -f origin "HEAD:${BRANCH}"
-          echo "Manifests pushed to $BRANCH."
-          echo "Open a PR: https://github.com/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1"
+          gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$BRANCH" \
+            --title "chore: package manifests for ${GITHUB_REF_NAME}" \
+            --body "Auto-generated Scoop/winget manifests for ${GITHUB_REF_NAME}." \
+            || echo "PR for $BRANCH may already exist; continuing to merge."
+          # Merge once GitHub finishes computing mergeability (no required checks/reviews).
+          for i in 1 2 3 4 5 6; do
+            if gh pr merge "$BRANCH" --repo "$GITHUB_REPOSITORY" --squash --delete-branch; then
+              echo "Manifest PR merged."; exit 0
+            fi
+            echo "Merge not ready (attempt $i), retrying in 5s..."; sleep 5
+          done
+          echo "::error::Could not auto-merge the manifest PR for ${GITHUB_REF_NAME}; merge it manually."
+          exit 1
