@@ -1,7 +1,7 @@
 {
   "name": "md-viewer",
   "productName": "Markdown Viewer",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "A simple, fast cross-platform Markdown viewer and editor for Windows, macOS, and Linux.",
   "author": {
     "name": "Ferdous",
