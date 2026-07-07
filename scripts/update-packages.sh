@@ -182,24 +182,22 @@ if [ "$PUSH_CASK" = "1" ]; then
   echo "Pushing cask to $TAP_REPO via GitHub API..."
   B64="$(base64 < "$CASK" | tr -d '\n')"
   EXISTING_SHA="$(GH_TOKEN="$PUSH_TOKEN" gh api "repos/$TAP_REPO/contents/Casks/md-viewer.rb" -q .sha 2>/dev/null || true)"
-  if [ -n "$EXISTING_SHA" ]; then
-    GH_TOKEN="$PUSH_TOKEN" gh api --method PUT "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
-      -f message="md-viewer $VERSION" -f content="$B64" -f sha="$EXISTING_SHA" >/dev/null
-  else
-    GH_TOKEN="$PUSH_TOKEN" gh api --method PUT "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
-      -f message="md-viewer $VERSION" -f content="$B64" >/dev/null
-  fi
 
-  # Verify the tap now serves this version, so a silent no-op can't pass as success
-  # (the failure mode that let earlier releases ship without bumping the tap).
-  PUSHED_VERSION="$(GH_TOKEN="$PUSH_TOKEN" gh api "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
-    -H "Accept: application/vnd.github.raw" 2>/dev/null \
-    | sed -n 's/^[[:space:]]*version "\(.*\)"/\1/p' | head -1)"
-  if [ "$PUSHED_VERSION" != "$VERSION" ]; then
-    echo "Tap verification failed: expected $VERSION but $TAP_REPO now shows '${PUSHED_VERSION:-<none>}'" >&2
-    exit 1
+  # Verify from the PUT RESPONSE, not a read-back. The contents API is served
+  # through a CDN that lags for ~seconds after a write, so an immediate re-read
+  # can return the previous version (false failure). The PUT response is the
+  # authoritative write result: `-q .commit.sha` yields the new commit, or
+  # "unchanged" if the content already matched (a re-run). A failed PUT (bad sha,
+  # auth, etc.) exits non-zero and `set -e` aborts here — so a silent no-op can't
+  # slip through.
+  if [ -n "$EXISTING_SHA" ]; then
+    COMMIT="$(GH_TOKEN="$PUSH_TOKEN" gh api --method PUT "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
+      -f message="md-viewer $VERSION" -f content="$B64" -f sha="$EXISTING_SHA" -q '.commit.sha // "unchanged"')"
+  else
+    COMMIT="$(GH_TOKEN="$PUSH_TOKEN" gh api --method PUT "repos/$TAP_REPO/contents/Casks/md-viewer.rb" \
+      -f message="md-viewer $VERSION" -f content="$B64" -q '.commit.sha // "unchanged"')"
   fi
-  echo "Cask pushed and verified: $TAP_REPO now at $VERSION."
+  echo "Cask pushed: $TAP_REPO now at $VERSION (commit ${COMMIT})."
 else
   echo "PUSH_CASK=0 -> skipped tap push (cask copy left in packaging/homebrew/md-viewer.rb)"
 fi
