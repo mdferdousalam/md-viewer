@@ -9,7 +9,6 @@ set -eu
 
 REPO="mdferdousalam/md-viewer"
 APP_NAME="Markdown Viewer"
-API_URL="https://api.github.com/repos/${REPO}/releases/latest"
 RAW_ICON="https://raw.githubusercontent.com/${REPO}/main/assets/icon.png"
 
 # ---- helpers ------------------------------------------------------------
@@ -35,13 +34,22 @@ download() {
   else err "need curl or wget installed"; fi
 }
 
-# asset_url <regex> : print the first release asset download URL matching regex
-asset_url() {
-  printf '%s' "$RELEASE_JSON" \
-    | grep -o '"browser_download_url":[[:space:]]*"[^"]*"' \
-    | cut -d'"' -f4 \
-    | grep -E "$1" \
-    | head -n1
+# latest_tag : newest release tag (e.g. v1.2.5), resolved from the /releases/latest
+# redirect on github.com. Avoids api.github.com/.../releases/latest, which is capped
+# at 60 requests/hour per IP for anonymous callers and returns 403 once exhausted.
+latest_tag() {
+  _u="https://github.com/${REPO}/releases/latest"
+  if have curl; then
+    _eff="$(curl -fsSLo /dev/null -w '%{url_effective}' "$_u")" || return 1
+    printf '%s' "${_eff##*/}"
+  elif have wget; then
+    # Scrape the redirect target (…/releases/tag/vX.Y.Z) from the response headers.
+    wget -qS --spider "$_u" 2>&1 \
+      | sed -n 's/^[[:space:]]*[Ll]ocation:[[:space:]]*//p' \
+      | tail -n1 | tr -d '\r' | sed 's#.*/##'
+  else
+    err "need curl or wget installed"
+  fi
 }
 
 # ---- start --------------------------------------------------------------
@@ -49,9 +57,10 @@ asset_url() {
 printf '\n\033[1mInstalling %s\033[0m\n\n' "$APP_NAME"
 
 info "Looking up the latest release..."
-RELEASE_JSON="$(fetch "$API_URL")" || err "could not reach GitHub"
-VERSION="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name":[[:space:]]*"[^"]*"' | cut -d'"' -f4)"
-[ -n "$VERSION" ] || err "could not determine the latest version"
+VERSION="$(latest_tag)" || err "could not reach GitHub"
+[ -n "$VERSION" ] && [ "$VERSION" != "latest" ] || err "could not determine the latest version"
+VER="${VERSION#v}"
+DL="https://github.com/${REPO}/releases/download/${VERSION}"
 ok "Latest version: $VERSION"
 
 TMP="$(mktemp -d)"
@@ -60,8 +69,7 @@ trap 'rm -rf "$TMP"' EXIT
 OS="$(uname -s)"
 case "$OS" in
   Darwin) # ---------------------------------------------------------- macOS
-    URL="$(asset_url '\-universal-mac\.zip$')"
-    [ -n "$URL" ] || err "no macOS build found in release $VERSION"
+    URL="$DL/Markdown-Viewer-${VER}-universal-mac.zip"
 
     ZIP="$TMP/mdviewer.zip"
     download "$URL" "$ZIP"
@@ -99,8 +107,7 @@ case "$OS" in
     ;;
 
   Linux) # ---------------------------------------------------------- Linux
-    URL="$(asset_url '\.AppImage$')"
-    [ -n "$URL" ] || err "no Linux AppImage found in release $VERSION"
+    URL="$DL/Markdown-Viewer-${VER}.AppImage"
 
     BINDIR="$HOME/.local/bin"
     APPIMG="$BINDIR/md-viewer"
