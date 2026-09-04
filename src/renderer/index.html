@@ -106,7 +106,7 @@
         </div>
         <span class="tb-sep"></span>
         <div class="tb-group">
-          <button class="tb-btn" data-action="zen" data-tip="Focus mode (⌘⇧F)"><svg class="ic"><use href="#i-zen"/></svg></button>
+          <button class="tb-btn" data-action="zen" data-tip="Focus mode (⌘⇧D)"><svg class="ic"><use href="#i-zen"/></svg></button>
           <button class="tb-btn" id="themeToggle" data-action="theme" data-tip="Theme (⌘⇧L)"><svg class="ic"><use href="#i-moon"/></svg></button>
           <button class="tb-btn" data-action="help" data-tip="Shortcuts (?)"><svg class="ic"><use href="#i-help"/></svg></button>
         </div>
@@ -133,20 +133,6 @@
         </aside>
 
         <section class="pane editor-pane" id="editorPane">
-          <div class="find-bar" id="findBar" hidden>
-            <div class="find-row">
-              <input type="text" id="findInput" placeholder="Find" spellcheck="false" />
-              <span class="find-count" id="findCount">0/0</span>
-              <button class="icon-btn" id="findPrev" data-tip="Previous (⇧⏎)"><svg class="ic" style="transform:rotate(180deg)"><use href="#i-chevron-down"/></svg></button>
-              <button class="icon-btn" id="findNext" data-tip="Next (⏎)"><svg class="ic"><use href="#i-chevron-down"/></svg></button>
-              <button class="icon-btn" id="findClose" data-tip="Close (Esc)"><svg class="ic"><use href="#i-close"/></svg></button>
-            </div>
-            <div class="find-row">
-              <input type="text" id="replaceInput" placeholder="Replace" spellcheck="false" />
-              <button class="text-btn" id="replaceOne">Replace</button>
-              <button class="text-btn" id="replaceAll">All</button>
-            </div>
-          </div>
           <div id="editor"></div>
         </section>
 
@@ -163,6 +149,28 @@
           </div>
           <nav class="outline-list" id="backlinksList"></nav>
         </aside>
+
+        <!-- Find bar: a direct child of the workspace so it is visible in every
+             view mode (the editor pane is display:none in Preview-only). -->
+        <div class="find-bar" id="findBar" hidden>
+          <div class="find-row">
+            <input type="text" id="findInput" placeholder="Find" spellcheck="false" />
+            <span class="find-count" id="findCount">0/0</span>
+            <button class="icon-btn" id="findPrev" data-tip="Previous (⇧⏎)"><svg class="ic" style="transform:rotate(180deg)"><use href="#i-chevron-down"/></svg></button>
+            <button class="icon-btn" id="findNext" data-tip="Next (⏎)"><svg class="ic"><use href="#i-chevron-down"/></svg></button>
+            <button class="icon-btn" id="findClose" data-tip="Close (Esc)"><svg class="ic"><use href="#i-close"/></svg></button>
+          </div>
+          <div class="find-row find-replace-row">
+            <input type="text" id="replaceInput" placeholder="Replace" spellcheck="false" />
+            <button class="text-btn" id="replaceOne">Replace</button>
+            <button class="text-btn" id="replaceAll">All</button>
+          </div>
+          <!-- Per-open-file match summary; shown only when more than one tab is open. -->
+          <div class="find-row find-files" id="findFiles" hidden>
+            <span class="find-total" id="findTotal"></span>
+            <div class="find-chips" id="findChips"></div>
+          </div>
+        </div>
       </div>
 
       <footer class="statusbar" id="statusbar">
