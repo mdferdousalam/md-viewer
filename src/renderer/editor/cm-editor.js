@@ -9,7 +9,7 @@
 // `setRangeText`, `setSelectionRange`, `focus`, and `scrollTop/scrollHeight/
 // clientHeight`. This keeps the migration surgical — no main/preload/MCP changes.
 
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorState, Compartment, StateField, StateEffect } from '@codemirror/state';
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
   drawSelection, dropCursor, rectangularSelection, crosshairCursor, placeholder as cmPlaceholder,
@@ -70,6 +70,10 @@ const baseTheme = EditorView.theme({
     backgroundColor: 'var(--accent-soft)', outline: 'none', color: 'inherit',
   },
   '.cm-placeholder': { color: 'var(--text-dim)' },
+  // Find-bar match highlighting (see findField below). Outline for the active
+  // match so the regular --sel selection stays visible underneath it.
+  '.cm-find-match': { backgroundColor: 'var(--find-hl)', borderRadius: '2px' },
+  '.cm-find-match-active': { outline: '1px solid var(--accent)' },
   // Autocomplete popup, themed with the app tokens.
   '.cm-tooltip.cm-tooltip-autocomplete': {
     border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
@@ -132,6 +136,34 @@ const livePreviewPlugin = ViewPlugin.fromClass(
   },
   { decorations: (v) => v.decorations }
 );
+
+// ---- Find matches --------------------------------------------------------
+// The renderer's find bar computes matches itself (one matcher shared with the
+// preview-side find) and pushes them here as {from,to} ranges; this field just
+// paints them. Decorations are mapped through unrelated edits so they stay
+// aligned while typing until the next recount lands.
+const setFindMatchesFx = StateEffect.define(); // { ranges: [{from,to}], active: number }
+const findMark = Decoration.mark({ class: 'cm-find-match' });
+const findActiveMark = Decoration.mark({ class: 'cm-find-match cm-find-match-active' });
+const findField = StateField.define({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    deco = deco.map(tr.changes);
+    for (const e of tr.effects) {
+      if (!e.is(setFindMatchesFx)) continue;
+      const { ranges, active } = e.value;
+      const len = tr.state.doc.length;
+      deco = Decoration.set(
+        ranges
+          .filter((r) => r.from < r.to && r.to <= len)
+          .map((r, i) => (i === active ? findActiveMark : findMark).range(r.from, r.to)),
+        true
+      );
+    }
+    return deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 // ---- Autocomplete --------------------------------------------------------
 // Completion sources are data-driven: the renderer passes plain providers
@@ -233,6 +265,7 @@ export function createEditor(opts) {
       baseTheme,
       themeCompartment.of(EditorView.theme({}, { dark })),
       liveCompartment.of([]),
+      findField,
       updateListener,
       EditorView.domEventHandlers({ scroll: () => { onScroll && onScroll(); return false; } }),
     ],
@@ -290,6 +323,12 @@ export function createEditor(opts) {
     // Show/hide the line-number gutter (driven by the user preference).
     setLineNumbers(on) {
       view.dispatch({ effects: lineNumberCompartment.reconfigure(on ? lineNumbers() : []) });
+    },
+
+    // Paint find-bar matches: `ranges` are {from,to} doc offsets, `activeIndex`
+    // marks the current one (-1 for none). Pass [] to clear.
+    setFindMatches(ranges, activeIndex = -1) {
+      view.dispatch({ effects: setFindMatchesFx.of({ ranges: ranges || [], active: activeIndex }) });
     },
   };
 }

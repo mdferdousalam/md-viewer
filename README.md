@@ -111,7 +111,7 @@ preview so a model can see the result. See **[docs/AUTOMATION.md](docs/AUTOMATIO
 - ⌘ **Command palette** (`Ctrl/Cmd+Shift+P`) — run any action instantly
 - 🧭 **Document outline** (`Ctrl/Cmd+\`) — navigate headings, with active-section tracking
 - 🔍 **Find & replace** (`Ctrl/Cmd+F`)
-- 🧘 **Focus mode** (`Ctrl/Cmd+Shift+F`) — distraction-free writing
+- 🧘 **Focus mode** (`Ctrl/Cmd+Shift+D`) — distraction-free writing
 - 🧮 **Math** — inline `$…$` and block `$$…$$` rendered with KaTeX
 - 📊 **Diagrams** — Mermaid flowcharts, sequence diagrams, and more
 - ✅ **Interactive task lists** — tick checkboxes in the preview and the source updates live
@@ -135,7 +135,8 @@ preview so a model can see the result. See **[docs/AUTOMATION.md](docs/AUTOMATIO
 | Bold / Italic / Link | `Ctrl/Cmd + B / I / K` |
 | Editor / Split / Preview | `Ctrl/Cmd + 1 / 2 / 3` |
 | Toggle outline    | `Ctrl/Cmd + \`           |
-| Focus mode        | `Ctrl/Cmd + Shift + F`   |
+| Focus mode        | `Ctrl/Cmd + Shift + D`   |
+| Search in workspace | `Ctrl/Cmd + Shift + F` |
 | Cycle theme       | `Ctrl/Cmd + Shift + L`   |
 | Keyboard shortcuts| `?`                      |
 

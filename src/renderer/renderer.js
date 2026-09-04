@@ -325,6 +325,7 @@ function scheduleRender() {
   requestAnimationFrame(() => {
     scheduled = false;
     updatePreview();
+    findOnRender(); // re-apply find highlights (innerHTML replacement dropped them)
     updateStatus();
     buildOutline();
     reportDirty();
@@ -698,6 +699,7 @@ function setViewMode(mode) {
   document.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === mode));
   if (mode !== 'split') editorPane.style.flexBasis = '';
   editor.setLiveMode(mode === 'live');
+  if (findState.open) findOnModeChange();
 }
 
 function toggleZen(force) {
@@ -816,6 +818,7 @@ async function closeTab(id, force) {
     if (!(await maybeConfirmDiscard())) return;
   }
   tabs.splice(idx, 1);
+  findState.counts.delete(id);
   updateWatched();
   if (!tabs.length) { openInNewTab(null, ''); return; }
   if (id === activeId) activateTab(tabs[Math.max(0, idx - 1)].id, true);
@@ -831,11 +834,16 @@ function renderTabs() {
     const el = document.createElement('div');
     el.className = 'tab' + (t.id === activeId ? ' active' : '');
     const name = baseName(t.filePath) || 'Untitled';
-    el.innerHTML = `<span class="tab-name"></span>${tabIsDirty(t) ? '<span class="tab-dirty">●</span>' : ''}<button class="tab-close" tabindex="-1" aria-label="Close tab"><svg class="ic"><use href="#i-close"/></svg></button>`;
+    // While the find bar is open, each tab shows its match count (click → jump).
+    const fc = findState.open && findState.query ? findState.counts.get(t.id) : undefined;
+    const badge = fc == null ? '' : `<span class="tab-find-count${fc === 0 ? ' zero' : ''}" title="Matches in this file"></span>`;
+    el.innerHTML = `<span class="tab-name"></span>${badge}${tabIsDirty(t) ? '<span class="tab-dirty">●</span>' : ''}<button class="tab-close" tabindex="-1" aria-label="Close tab"><svg class="ic"><use href="#i-close"/></svg></button>`;
     el.querySelector('.tab-name').textContent = name;
+    if (fc != null) el.querySelector('.tab-find-count').textContent = fmtCount(fc);
     el.title = t.filePath || name;
     el.addEventListener('mousedown', (e) => {
-      if (e.target.closest('.tab-close')) { e.preventDefault(); closeTab(t.id); }
+      if (e.target.closest('.tab-find-count')) { e.preventDefault(); findGoToTab(t.id, 'first'); }
+      else if (e.target.closest('.tab-close')) { e.preventDefault(); closeTab(t.id); }
       else activateTab(t.id);
     });
     tabStrip.appendChild(el);
@@ -1604,65 +1612,359 @@ async function onEditorPaste(e) {
 }
 
 // ============================================================
-// Find & replace
+// Find (every view mode, across all open tabs) & replace
 // ============================================================
+// One matcher (buildFindRegex / findAll) serves two "domains":
+//   'source'   — editor / split / live: the Markdown text of a tab
+//   'rendered' — preview only:          the visible text of the rendered page
+// The domain follows the view mode for ALL tabs, so the per-file counts (tab
+// badges + chips row) and the i/N counter always agree. The active tab is
+// searched live; other tabs are searched from their in-memory content — for the
+// rendered domain via an inert DOMParser render, cached per content string.
 
 const findBar = $('findBar');
 const findInput = $('findInput');
 const replaceInput = $('replaceInput');
 const findCount = $('findCount');
-let matches = [];
-let matchIdx = -1;
+const findFiles = $('findFiles');
+const findTotal = $('findTotal');
+const findChips = $('findChips');
+
+const FIND_MAX = 5000; // per tab per domain; shown as "5000+"
+// Never matched in the rendered domain: diagrams (SVG text is not paintable by
+// the Highlight API and the Mermaid swap is async), their source blocks (so the
+// text index is identical before/after that swap), and KaTeX glyph spans.
+const FIND_SKIP = 'script, style, svg, .mermaid, code.language-mermaid, .katex';
+const HL_OK = typeof Highlight !== 'undefined' && typeof CSS !== 'undefined' && !!CSS.highlights;
+
+const findState = {
+  open: false,
+  query: '',
+  domain: 'source',   // 'source' | 'rendered'
+  matches: [],        // active tab: [{from,to}] (source) or [Range] (rendered)
+  idx: -1,
+  counts: new Map(),  // tabId -> match count in the current domain
+  pending: null,      // 'first' | 'last' — consumed by findOnRender() after a tab switch
+  capped: false,
+};
+let findRecountTimer = null;
+
+function findDomainFor(mode) { return mode === 'preview' ? 'rendered' : 'source'; }
+function fmtCount(n) { return n >= FIND_MAX ? `${FIND_MAX}+` : String(n); }
+
+// Same escaping as the workspace search in main.js so ⌘F and ⌘⇧F agree. A regex
+// with the `i` flag (rather than lower-casing the haystack) keeps offsets exact
+// for characters whose case-fold changes length.
+function buildFindRegex(q) {
+  return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+}
+function findAll(text, re, cap = FIND_MAX) {
+  const out = [];
+  re.lastIndex = 0;
+  let m;
+  while (out.length < cap && (m = re.exec(text))) {
+    out.push({ from: m.index, to: m.index + m[0].length });
+    if (!m[0].length) re.lastIndex++;
+  }
+  return out;
+}
+
+// Flatten the visible text under `root` into one string plus a node/offset index
+// so a string offset can be mapped back to a DOM point (for Ranges).
+function collectText(root) {
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => {
+      if (n.nodeType === 1) return n.matches(FIND_SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+      return n.data ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const nodes = [], starts = [];
+  let text = '';
+  for (let n; (n = walker.nextNode());) { nodes.push(n); starts.push(text.length); text += n.data; }
+  return { text, nodes, starts };
+}
+// String offset -> [textNode, offsetInNode]. A range START picks the node that
+// begins at `off`; a range END picks the node containing the character before it.
+function offsetToPoint(idx, off, isEnd) {
+  const { nodes, starts } = idx;
+  let lo = 0, hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] < off || (!isEnd && starts[mid] === off)) lo = mid; else hi = mid - 1;
+  }
+  return [nodes[lo], off - starts[lo]];
+}
+function toRange(idx, m) {
+  const r = document.createRange();
+  r.setStart(...offsetToPoint(idx, m.from, false));
+  r.setEnd(...offsetToPoint(idx, m.to, true));
+  return r;
+}
+
+// Rendered-domain text of a NON-active tab: render its Markdown into an inert
+// document (no image fetches, no scripts) and flatten it. Cached per content.
+function renderedTextFor(t) {
+  const src = tabText(t);
+  if (t.findTextSrc !== src) {
+    const doc = new DOMParser().parseFromString(renderMarkdown(src), 'text/html');
+    t.findText = collectText(doc.body).text;
+    t.findTextSrc = src;
+  }
+  return t.findText;
+}
+function domainTextFor(t) { return findState.domain === 'rendered' ? renderedTextFor(t) : tabText(t); }
+
+function applyPreviewHighlights(ranges, activeIdx) {
+  if (!HL_OK) return;
+  CSS.highlights.set('find', new Highlight(...ranges));
+  if (activeIdx >= 0 && ranges[activeIdx]) CSS.highlights.set('find-active', new Highlight(ranges[activeIdx]));
+  else CSS.highlights.delete('find-active');
+}
+function clearPreviewHighlights() {
+  if (!HL_OK) return;
+  CSS.highlights.delete('find');
+  CSS.highlights.delete('find-active');
+}
+// Scroll #preview (its own scroll container) so `range` is visible: centred,
+// instant, and clear of the floating bar at the top.
+function revealRange(range) {
+  const r = range.getBoundingClientRect();
+  if (!r.width && !r.height) return; // pane hidden (display:none) — nothing to scroll
+  const p = preview.getBoundingClientRect();
+  if (r.top < p.top + 70 || r.bottom > p.bottom - 24) {
+    preview.scrollTop += (r.top - p.top) - p.height / 2 + r.height / 2;
+  }
+}
+
+// Recompute the ACTIVE tab's matches in the current domain.
+function computeActive() {
+  const a = active();
+  findState.matches = [];
+  findState.capped = false;
+  if (!findState.query) { if (a) findState.counts.delete(a.id); return; }
+  const re = buildFindRegex(findState.query);
+  if (findState.domain === 'rendered') {
+    const idx = collectText(preview);
+    findState.matches = findAll(idx.text, re).map((m) => toRange(idx, m));
+  } else {
+    findState.matches = findAll(editor.value, re);
+  }
+  findState.capped = findState.matches.length >= FIND_MAX;
+  if (a) findState.counts.set(a.id, findState.matches.length);
+}
+// Index of the first match at/after a source offset (wrapping to 0). Rendered
+// matches have no source position, so they start at the top.
+function nearestIdx(from) {
+  const ms = findState.matches;
+  if (!ms.length) return -1;
+  if (findState.domain === 'rendered') return 0;
+  const i = ms.findIndex((m) => m.from >= from);
+  return i === -1 ? 0 : i;
+}
+
+// Paint the current match set; `scroll` also moves the caret / scrolls the
+// preview to the active match.
+function selectMatch(scroll) {
+  const { matches, idx, domain } = findState;
+  const n = matches.length;
+  findCount.textContent = n ? `${idx + 1}/${n}${findState.capped ? '+' : ''}` : '0/0';
+  if (domain === 'rendered') {
+    applyPreviewHighlights(matches, idx);
+    if (scroll && idx >= 0) revealRange(matches[idx]);
+    editor.setFindMatches([], -1);
+    return;
+  }
+  editor.setFindMatches(matches, idx);
+  if (scroll && idx >= 0) editor.setSelectionRange(matches[idx].from, matches[idx].to);
+  if (state.viewMode === 'split' && n) {
+    // Split view: passively tint the rendered matches too (no active, no scroll).
+    const pi = collectText(preview);
+    applyPreviewHighlights(findAll(pi.text, buildFindRegex(findState.query)).map((m) => toRange(pi, m)), -1);
+  } else {
+    clearPreviewHighlights();
+  }
+}
+
+// The single post-render hook (called from scheduleRender right after
+// updatePreview, whose innerHTML replacement collapses any previous Ranges).
+function findOnRender() {
+  if (!findState.open) return;
+  if (!findState.query) { clearPreviewHighlights(); editor.setFindMatches([], -1); return; }
+  computeActive();
+  const n = findState.matches.length;
+  if (findState.pending) {
+    findState.idx = n ? (findState.pending === 'last' ? n - 1 : 0) : -1;
+    findState.pending = null;
+    selectMatch(true);
+  } else {
+    if (findState.idx >= n) findState.idx = n ? n - 1 : -1;
+    if (findState.idx < 0 && n) findState.idx = nearestIdx(editor.selectionStart);
+    selectMatch(false);
+  }
+  renderFindFiles();
+}
+
+function runFind() {
+  findState.query = findInput.value;
+  if (!findState.query) {
+    findState.matches = []; findState.idx = -1; findState.capped = false; findState.counts.clear();
+    findCount.textContent = '0/0';
+    clearPreviewHighlights();
+    editor.setFindMatches([], -1);
+    renderFindFiles();
+    renderTabs();
+    return;
+  }
+  computeActive();
+  findState.idx = nearestIdx(editor.selectionStart);
+  selectMatch(true);
+  renderFindFiles();
+  renderTabs();
+  scheduleRecountOthers();
+}
+
+// Counts for the other open tabs (debounced: typing must stay instant).
+function recountOtherTabs() {
+  findRecountTimer = null;
+  if (!findState.open || !findState.query) return;
+  const re = buildFindRegex(findState.query);
+  for (const t of tabs) {
+    if (t.id === activeId) continue;
+    findState.counts.set(t.id, findAll(domainTextFor(t), re).length);
+  }
+  renderFindFiles();
+  renderTabs();
+}
+function scheduleRecountOthers() {
+  if (findRecountTimer) clearTimeout(findRecountTimer);
+  findRecountTimer = setTimeout(recountOtherTabs, 120);
+}
+
+// Tab labels by basename, disambiguating duplicates with their parent folder.
+function findTabLabels() {
+  const names = tabs.map((t) => baseName(t.filePath) || 'Untitled');
+  const dup = new Set(names.filter((n, i) => names.indexOf(n) !== i));
+  return tabs.map((t, i) => {
+    if (!dup.has(names[i]) || !t.filePath) return names[i];
+    const parts = t.filePath.split(/[\\/]/);
+    return parts.length > 1 ? `${parts[parts.length - 2]}/${names[i]}` : names[i];
+  });
+}
+
+// "27 in 3 files" + one chip per open tab (in strip order). Only with >1 tab.
+function renderFindFiles() {
+  const show = findState.open && !!findState.query && tabs.length > 1;
+  findFiles.hidden = !show;
+  if (!show) return;
+  for (const id of [...findState.counts.keys()]) if (!tabs.some((t) => t.id === id)) findState.counts.delete(id);
+  let total = 0, files = 0, capped = false;
+  for (const t of tabs) {
+    const c = findState.counts.get(t.id) || 0;
+    total += c; if (c) files++; if (c >= FIND_MAX) capped = true;
+  }
+  findTotal.textContent = `${total}${capped ? '+' : ''} in ${files} file${files === 1 ? '' : 's'}`;
+  const labels = findTabLabels();
+  findChips.innerHTML = '';
+  tabs.forEach((t, i) => {
+    const c = findState.counts.get(t.id);
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'find-chip' + (t.id === activeId ? ' active' : '') + (c === 0 ? ' zero' : '');
+    chip.dataset.tab = String(t.id);
+    chip.title = t.filePath || labels[i];
+    const name = document.createElement('span');
+    name.className = 'find-chip-name';
+    name.textContent = labels[i];
+    const num = document.createElement('span');
+    num.className = 'find-chip-n';
+    num.textContent = c == null ? '…' : fmtCount(c);
+    chip.append(name, num);
+    findChips.appendChild(chip);
+  });
+}
+
+// Jump to another tab's first/last match. The match itself is selected one frame
+// later by findOnRender() (in preview mode the new tab's DOM only exists after
+// updatePreview()); `pending` carries the intent across.
+function findGoToTab(id, which = 'first') {
+  findState.pending = which;
+  if (id === activeId) findOnRender();
+  else activateTab(id);
+  findInput.focus({ preventScroll: true }); // activateTab() focused the editor; take it back
+}
+
+function findNext(dir = 1) {
+  const n = findState.matches.length;
+  if (n && (dir > 0 ? findState.idx < n - 1 : findState.idx > 0)) {
+    findState.idx += dir;
+    selectMatch(true);
+    return;
+  }
+  // At this tab's end: continue in the next/previous open tab that has matches.
+  const L = tabs.length;
+  const start = tabs.findIndex((t) => t.id === activeId);
+  for (let k = 1; k < L; k++) {
+    const t = tabs[(((start + dir * k) % L) + L) % L];
+    if ((findState.counts.get(t.id) || 0) > 0) { findGoToTab(t.id, dir > 0 ? 'first' : 'last'); return; }
+  }
+  if (n) { findState.idx = dir > 0 ? 0 : n - 1; selectMatch(true); } // only this tab: wrap locally
+}
 
 function openFind() {
+  findState.open = true;
+  findState.domain = findDomainFor(state.viewMode);
+  findBar.classList.toggle('find-preview', state.viewMode === 'preview');
   findBar.hidden = false;
-  findInput.value = getSel() || findInput.value;
+  // Seed from the selection — the rendered selection in preview mode, else the
+  // editor's. Multi-line selections are ignored (they would be a nonsense query).
+  const domSel = state.viewMode === 'preview' ? String(window.getSelection() || '').trim() : '';
+  const seed = domSel || getSel();
+  if (seed && !seed.includes('\n')) findInput.value = seed;
   findInput.focus();
   findInput.select();
   runFind();
 }
-function closeFind() { findBar.hidden = true; editor.focus(); }
-
-function runFind() {
-  const q = findInput.value;
-  matches = [];
-  if (q) {
-    const hay = editor.value.toLowerCase();
-    const needle = q.toLowerCase();
-    let i = hay.indexOf(needle);
-    while (i !== -1) { matches.push(i); i = hay.indexOf(needle, i + Math.max(1, needle.length)); }
-  }
-  matchIdx = matches.length ? 0 : -1;
-  selectMatch();
+function closeFind() {
+  if (findRecountTimer) { clearTimeout(findRecountTimer); findRecountTimer = null; }
+  findBar.hidden = true;
+  findState.open = false;
+  findState.pending = null;
+  clearPreviewHighlights();
+  editor.setFindMatches([], -1);
+  renderTabs(); // drops the per-tab badges
+  editor.focus();
 }
 
-function selectMatch() {
-  findCount.textContent = matches.length ? `${matchIdx + 1}/${matches.length}` : '0/0';
-  if (matchIdx < 0) return;
-  const start = matches[matchIdx];
-  // Move the editor selection to the match (scrolls it into view) without
-  // stealing focus from the find input, so typing/Enter keep working.
-  editor.setSelectionRange(start, start + findInput.value.length);
-}
-
-function findNext(dir = 1) {
-  if (!matches.length) return;
-  matchIdx = (matchIdx + dir + matches.length) % matches.length;
-  selectMatch();
+// View mode changed while the bar is open: the domain may have flipped, so
+// recompute everything (the preview DOM is always current, even when hidden).
+function findOnModeChange() {
+  findState.domain = findDomainFor(state.viewMode);
+  findBar.classList.toggle('find-preview', state.viewMode === 'preview');
+  if (!findState.query) return;
+  computeActive();
+  const n = findState.matches.length;
+  findState.idx = n ? Math.min(Math.max(findState.idx, 0), n - 1) : -1;
+  selectMatch(false);
+  renderFindFiles();
+  recountOtherTabs();
 }
 
 function replaceOne() {
-  if (matchIdx < 0) return;
-  const start = matches[matchIdx];
-  const len = findInput.value.length;
-  editor.setRangeText(replaceInput.value, start, start + len, 'end');
+  if (findState.domain === 'rendered' || findState.idx < 0) return;
+  const m = findState.matches[findState.idx];
+  if (!m) return;
+  editor.setRangeText(replaceInput.value, m.from, m.to, 'end');
   scheduleRender();
-  runFind();
+  // Recount now and step to the next match after the replacement (not back to #1).
+  computeActive();
+  findState.idx = nearestIdx(m.from + replaceInput.value.length);
+  selectMatch(true);
+  renderFindFiles();
+  renderTabs();
 }
 function replaceAll() {
-  if (!findInput.value) return;
-  const re = new RegExp(findInput.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
-  editor.value = editor.value.replace(re, replaceInput.value);
+  if (findState.domain === 'rendered' || !findState.query) return;
+  editor.value = editor.value.replace(buildFindRegex(findState.query), replaceInput.value);
   scheduleRender();
   runFind();
 }
@@ -1678,6 +1980,13 @@ $('findPrev').addEventListener('click', () => findNext(-1));
 $('findClose').addEventListener('click', closeFind);
 $('replaceOne').addEventListener('click', replaceOne);
 $('replaceAll').addEventListener('click', replaceAll);
+// Chips: mousedown (not click) + preventDefault keeps focus in the find input.
+findChips.addEventListener('mousedown', (e) => {
+  const chip = e.target.closest('.find-chip');
+  if (!chip) return;
+  e.preventDefault();
+  findGoToTab(Number(chip.dataset.tab), 'first');
+});
 
 // ============================================================
 // Command palette
@@ -2176,6 +2485,7 @@ window.api.onMenuFormat(applyFormat);
 window.api.onMenuViewMode(setViewMode);
 window.api.onMenuToggleTheme(cycleTheme);
 window.api.onMenuFind(openFind);
+window.api.onMenuSearch?.(openSearch);
 window.api.onMenuPalette(openPalette);
 window.api.onMenuOutline(() => toggleOutline());
 window.api.onMenuZen(() => toggleZen());
@@ -2259,7 +2569,7 @@ A fast, beautiful **Markdown editor** with live preview — for macOS, Windows, 
 - **Command palette** — press \`⌘⇧P\` to run any action
 - **Document outline** — press \`⌘\\\` to jump between sections
 - **Find & replace** with \`⌘F\`
-- **Focus mode** with \`⌘⇧F\`, and three themes (\`⌘⇧L\`)
+- **Focus mode** with \`⌘⇧D\`, and three themes (\`⌘⇧L\`)
 
 ## Rich rendering
 

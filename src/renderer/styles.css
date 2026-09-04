@@ -251,6 +251,13 @@ html, body {
 .tab.active { background: var(--bg); color: var(--text); border-color: var(--border); }
 .tab-name { overflow: hidden; text-overflow: ellipsis; }
 .tab-dirty { color: var(--accent); font-size: 9px; }
+/* Find-bar match count per tab (only while the bar is open with a query). */
+.tab-find-count {
+  flex: none; min-width: 18px; height: 16px; line-height: 16px; padding: 0 5px; border-radius: 8px;
+  text-align: center; font-family: var(--font-mono); font-size: 10.5px;
+  background: var(--accent-soft); color: var(--accent-text); cursor: pointer;
+}
+.tab-find-count.zero { background: var(--surface-2); color: var(--text-dim); }
 .tab-close {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; border: none; background: transparent;
@@ -268,7 +275,7 @@ html, body {
 /* ============================================================
    Workspace
    ============================================================ */
-.workspace { flex: 1; display: flex; min-height: 0; }
+.workspace { flex: 1; display: flex; min-height: 0; position: relative; } /* anchors the floating .find-bar */
 
 .pane { min-width: 0; display: flex; flex-direction: column; position: relative; }
 .editor-pane { flex: 1 1 50%; background: var(--bg-editor); }
@@ -388,6 +395,28 @@ body.no-linenums .workspace.view-live #editor .cm-gutters { display: none; }
 }
 .find-bar input:focus { border-color: var(--accent); }
 .find-count { font-size: 11.5px; color: var(--text-dim); min-width: 40px; text-align: center; }
+/* Match highlighting in the rendered preview (CSS Custom Highlight API). */
+::highlight(find) { background-color: var(--find-hl); }
+::highlight(find-active) { background-color: var(--accent); color: var(--bg); }
+/* Replace makes no sense in the read-only preview. */
+.find-bar.find-preview .find-replace-row { display: none; }
+/* Keep the bar off the Backlinks pane when it's open. */
+.workspace:has(> .backlinks:not([hidden])) > .find-bar { right: 268px; }
+/* Per-file summary row (multiple tabs): total + one chip per open file. */
+.find-files { flex-wrap: wrap; max-width: 440px; gap: 4px 6px; }
+.find-total { font-size: 11.5px; color: var(--text-dim); font-family: var(--font-mono); flex: none; }
+.find-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.find-chip {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; max-width: 200px;
+  border: 1px solid transparent; border-radius: 11px; background: var(--bg); color: var(--text-2);
+  font-family: var(--font-ui); font-size: 11.5px; cursor: pointer; transition: var(--transition);
+}
+.find-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.find-chip-n { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); flex: none; }
+.find-chip:hover { background: var(--surface-hover); color: var(--text); }
+.find-chip.active { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft); }
+.find-chip.active .find-chip-n { color: var(--accent-text); }
+.find-chip.zero { opacity: 0.5; }
 
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;

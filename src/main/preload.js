@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('api', {
   onMenuViewMode: (cb) => subscribe('menu:view-mode', cb),
   onMenuToggleTheme: (cb) => subscribe('menu:toggle-theme', cb),
   onMenuFind: (cb) => subscribe('menu:find', cb),
+  onMenuSearch: (cb) => subscribe('menu:search', cb),
   onMenuPalette: (cb) => subscribe('menu:palette', cb),
   onMenuOutline: (cb) => subscribe('menu:outline', cb),
   onMenuZen: (cb) => subscribe('menu:zen', cb),

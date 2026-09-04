@@ -418,6 +418,11 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+Shift+P',
           click: () => sendToFocused('menu:palette'),
         },
+        {
+          label: 'Search in Workspace…',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          click: () => sendToFocused('menu:search'),
+        },
         { type: 'separator' },
         {
           label: 'Editor Only',
@@ -434,6 +439,11 @@ function buildMenu() {
           accelerator: 'CmdOrCtrl+3',
           click: () => sendToFocused('menu:view-mode', 'preview'),
         },
+        {
+          label: 'Live Preview',
+          accelerator: 'CmdOrCtrl+4',
+          click: () => sendToFocused('menu:view-mode', 'live'),
+        },
         { type: 'separator' },
         {
           label: 'Toggle Outline',
@@ -442,7 +452,7 @@ function buildMenu() {
         },
         {
           label: 'Focus Mode',
-          accelerator: 'CmdOrCtrl+Shift+F',
+          accelerator: 'CmdOrCtrl+Shift+D',
           click: () => sendToFocused('menu:zen'),
         },
         {
